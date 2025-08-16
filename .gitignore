@@ -45,3 +45,8 @@ buildNumber.properties
 tmp
 *.iml
 recording.jfr
+
+
+# Added by cargo
+
+/target

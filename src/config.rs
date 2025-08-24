@@ -16,8 +16,8 @@ pub struct KafkaConfig {
 impl Default for KafkaConfig {
     fn default() -> Self {
         Self {
-            bootstrap_servers: "localhost:9092".to_string(),
-            schema_registry_url: None,
+            bootstrap_servers: "localhost:29092,localhost:39092,localhost:49092".to_string(),
+            schema_registry_url: Some("http://localhost:8081".to_string()),
             security_protocol: None,
             sasl_mechanism: None,
             sasl_username: None,

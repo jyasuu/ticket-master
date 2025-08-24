@@ -41,13 +41,13 @@ cargo build -p ticket-service --release
 
 ```bash
 # Event Service
-./target/release/event-service --config client.dev.properties
+RUST_LOG=info ./target/release/event-service --config appConfig/client.dev.properties
 
 # Reservation Service  
-./target/release/reservation-service --config client.dev.properties
+RUST_LOG=info ./target/release/reservation-service --config appConfig/client.dev.properties
 
 # Ticket Service (REST API)
-./target/release/ticket-service --config client.dev.properties --port 8080
+RUST_LOG=info ./target/release/ticket-service --config appConfig/client.dev.properties --port 8080
 ```
 
 ## API Examples

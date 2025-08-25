@@ -2,8 +2,18 @@ pub mod domain;
 pub mod kafka;
 pub mod error;
 pub mod config;
+pub mod config_parser;
+pub mod avro_schemas;
+pub mod retry;
+pub mod metrics;
+pub mod shutdown;
 
 pub use domain::*;
 pub use error::*;
 pub use config::*;
+pub use config_parser::*;
 pub use kafka::*;
+pub use avro_schemas::*;
+pub use retry::*;
+pub use metrics::*;
+pub use shutdown::*;

@@ -119,7 +119,7 @@ async fn main() -> Result<()> {
 
     if let Some(producer_config_path) = args.producer_config {
         info!("Loading producer config from: {:?}", producer_config_path);
-        // TODO: Merge producer config
+        config = ticket_master::merge_stream_properties(config, producer_config_path)?;
     }
 
     // Create the ticket service
@@ -203,14 +203,11 @@ async fn health_check() -> Json<ApiResponse<String>> {
     Json(ApiResponse::success("OK".to_string()))
 }
 
-fn load_config(_config_path: &PathBuf) -> Result<ServiceConfig> {
-    // For now, return a default config
-    // In a real implementation, you'd parse the Java properties file
-    Ok(ServiceConfig {
-        application_id: "ticket-service".to_string(),
-        state_dir: "/tmp/kafka-streams".to_string(),
-        kafka: ticket_master::KafkaConfig::default(),
-        commit_interval_ms: Some(20),
-        processing_guarantee: Some("exactly_once_v2".to_string()),
-    })
+fn load_config(config_path: &PathBuf) -> Result<ServiceConfig> {
+    use ticket_master::parse_properties_file;
+    
+    // Parse the Java properties file
+    let config = parse_properties_file(config_path, "ticket-service")?;
+    
+    Ok(config)
 }

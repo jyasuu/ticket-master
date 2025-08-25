@@ -2,7 +2,7 @@ use ticket_master::{
     Result, TicketMasterError, ServiceConfig, KafkaConsumer, KafkaProducer,
     CreateReservation, Reservation, ReservationResult, ReservationState, 
     ReserveSeat, AreaStatus, Topics, Stores, event_area_key,
-    StateStore, ProcessingContext
+    StateStore, ProcessingContext, RocksDBStore
 };
 use std::time::Duration;
 use tracing::{info, error, warn};
@@ -28,16 +28,14 @@ impl ReservationService {
             Topics::STATE_EVENT_AREA_STATUS,
         ])?;
 
-        // Initialize state stores
-        let context = ProcessingContext::new();
+        // Initialize state stores with RocksDB
+        let context = ProcessingContext::with_state_dir(config.state_dir.clone());
         
         // Reservation store
-        let reservation_store: StateStore<String, Reservation> = StateStore::new();
-        context.add_store(Stores::RESERVATION.to_string(), reservation_store);
+        context.add_rocksdb_store(Stores::RESERVATION.to_string(), "reservations")?;
         
-        // Area status cache (LRU-like behavior with DashMap)
-        let area_status_cache: StateStore<String, AreaStatus> = StateStore::new();
-        context.add_store(Stores::EVENT_AREA_STATUS_CACHE.to_string(), area_status_cache);
+        // Area status cache
+        context.add_rocksdb_store(Stores::EVENT_AREA_STATUS_CACHE.to_string(), "area-status-cache")?;
 
         Ok(Self {
             consumer,

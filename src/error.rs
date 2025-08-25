@@ -31,6 +31,9 @@ pub enum TicketMasterError {
     
     #[error("Invalid argument: {0}")]
     InvalidArgument(String),
+    
+    #[error("RocksDB error: {0}")]
+    RocksDB(#[from] rocksdb::Error),
 }
 
 pub type Result<T> = std::result::Result<T, TicketMasterError>;

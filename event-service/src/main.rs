@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     if let Some(stream_config_path) = args.stream_config {
         // Load additional stream configuration
         info!("Loading stream config from: {:?}", stream_config_path);
-        // TODO: Merge stream config
+        config = ticket_master::merge_stream_properties(config, stream_config_path)?;
     }
 
     // Create and start the event service
@@ -70,13 +70,18 @@ async fn main() -> Result<()> {
 }
 
 fn load_config(config_path: &PathBuf) -> Result<ServiceConfig> {
-    // For now, return a default config
-    // In a real implementation, you'd parse the Java properties file
-    Ok(ServiceConfig {
-        application_id: "event-service".to_string(),
-        state_dir: "/tmp/kafka-streams".to_string(),
-        kafka: ticket_master::KafkaConfig::default(),
-        commit_interval_ms: Some(20),
-        processing_guarantee: Some("exactly_once_v2".to_string()),
-    })
+    use ticket_master::parse_properties_file;
+    
+    // Parse the Java properties file
+    let mut config = parse_properties_file(config_path, "event-service")?;
+    
+    // Set service-specific defaults
+    if config.commit_interval_ms.is_none() {
+        config.commit_interval_ms = Some(20);
+    }
+    if config.processing_guarantee.is_none() {
+        config.processing_guarantee = Some("exactly_once_v2".to_string());
+    }
+    
+    Ok(config)
 }

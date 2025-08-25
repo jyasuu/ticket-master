@@ -30,10 +30,9 @@ impl EventService {
             Topics::COMMAND_EVENT_RESERVE_SEAT,
         ])?;
 
-        // Initialize state stores
-        let context = ProcessingContext::new();
-        let area_status_store: StateStore<String, AreaStatus> = StateStore::new();
-        context.add_store(Stores::AREA_STATUS.to_string(), area_status_store);
+        // Initialize state stores with RocksDB
+        let context = ProcessingContext::with_state_dir(config.state_dir.clone());
+        context.add_rocksdb_store(Stores::AREA_STATUS.to_string(), "area-status")?;
 
         // Initialize reservation strategies
         let mut strategies: HashMap<ReservationType, Box<dyn ReservationStrategy + Send + Sync>> = HashMap::new();
@@ -108,8 +107,8 @@ impl EventService {
         
         info!("Creating event: {}", event_name);
 
-        let area_status_store: StateStore<String, AreaStatus> = self.context
-            .get_store(Stores::AREA_STATUS)
+        let area_status_store = self.context
+            .get_rocksdb_store(Stores::AREA_STATUS)
             .ok_or_else(|| TicketMasterError::InvalidArgument("Area status store not found".to_string()))?;
 
         // Create area status for each area and store them
@@ -117,7 +116,7 @@ impl EventService {
             let area_status = AreaStatus::from_area(event_name, area);
             let key = event_area_key(event_name, &area.area_id);
             
-            area_status_store.put(key.clone(), area_status.clone());
+            area_status_store.put(&key, &area_status)?;
             
             // Emit area status to state topic
             self.producer.send(
@@ -139,12 +138,12 @@ impl EventService {
         
         info!("Processing seat reservation: {}", reserve_request.reservation_id);
 
-        let area_status_store: StateStore<String, AreaStatus> = self.context
-            .get_store(Stores::AREA_STATUS)
+        let area_status_store = self.context
+            .get_rocksdb_store(Stores::AREA_STATUS)
             .ok_or_else(|| TicketMasterError::InvalidArgument("Area status store not found".to_string()))?;
 
         // Get current area status
-        let mut area_status = area_status_store.get(event_area_id)
+        let mut area_status = area_status_store.get::<AreaStatus>(event_area_id)?
             .ok_or_else(|| TicketMasterError::InvalidEventArea(event_area_id.clone()))?;
 
         // Get reservation strategy
@@ -167,7 +166,7 @@ impl EventService {
             area_status.available_seats -= result.seats.len() as i32;
             
             // Update state store
-            area_status_store.put(event_area_id.clone(), area_status.clone());
+            area_status_store.put(event_area_id, &area_status)?;
             
             // Emit updated area status
             self.producer.send(

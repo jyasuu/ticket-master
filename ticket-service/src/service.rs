@@ -1,7 +1,7 @@
 use ticket_master::{
-    Result, TicketMasterError, ServiceConfig, KafkaProducer,
+    Result, TicketMasterError, ServiceConfig, KafkaProducer, KafkaConsumer,
     CreateEvent, CreateReservation, Reservation, AreaStatus, Area, Seat,
-    ReservationType, Topics
+    ReservationType, Topics, Stores, event_area_key, ProcessingContext, RocksDBStore
 };
 use crate::{CreateEventRequest, CreateReservationRequest};
 use chrono::{DateTime, Utc};
@@ -11,16 +11,28 @@ use tracing::info;
 #[derive(Clone)]
 pub struct TicketService {
     producer: KafkaProducer,
-    // In a real implementation, you'd have state stores or database connections here
-    // For now, we'll just use the producer to send commands
+    consumer: KafkaConsumer,
+    context: ProcessingContext,
 }
 
 impl TicketService {
     pub async fn new(config: ServiceConfig) -> Result<Self> {
         let kafka_config = config.to_kafka_config();
-        let producer = KafkaProducer::new(kafka_config)?;
+        let producer = KafkaProducer::new(kafka_config.clone())?;
+        let consumer = KafkaConsumer::new(kafka_config)?;
 
-        Ok(Self { producer })
+        // Initialize state stores for querying
+        let context = ProcessingContext::with_state_dir(config.state_dir.clone());
+        
+        // Add RocksDB stores for reading state
+        context.add_rocksdb_store(Stores::AREA_STATUS.to_string(), "area-status")?;
+        context.add_rocksdb_store(Stores::RESERVATION.to_string(), "reservations")?;
+
+        Ok(Self { 
+            producer,
+            consumer,
+            context,
+        })
     }
 
     pub async fn create_event(&self, request: CreateEventRequest) -> Result<String> {
@@ -108,32 +120,45 @@ impl TicketService {
     }
 
     pub async fn get_area_status(&self, event_name: &str, area_id: &str) -> Result<Option<AreaStatus>> {
-        // In a real implementation, you'd query a state store or database
-        // For now, we'll return None since we don't have read-side state stores in this service
-        // In the Java version, this would query the Kafka Streams state stores
-        
         info!("Getting area status for event: {}, area: {}", event_name, area_id);
         
-        // This would typically be implemented by:
-        // 1. Querying the local state store if this service had Kafka Streams
-        // 2. Making an HTTP call to a query service
-        // 3. Querying a database that's populated by the event service
+        let key = event_area_key(event_name, area_id);
         
-        Ok(None)
+        if let Some(store) = self.context.get_rocksdb_store(Stores::AREA_STATUS) {
+            match store.get::<AreaStatus>(&key)? {
+                Some(area_status) => {
+                    info!("Found area status for {}: {} available seats", key, area_status.available_seats);
+                    Ok(Some(area_status))
+                }
+                None => {
+                    info!("No area status found for key: {}", key);
+                    Ok(None)
+                }
+            }
+        } else {
+            info!("Area status store not available");
+            Ok(None)
+        }
     }
 
     pub async fn get_reservation(&self, reservation_id: &str) -> Result<Option<Reservation>> {
-        // In a real implementation, you'd query a state store or database
-        // For now, we'll return None since we don't have read-side state stores in this service
-        
         info!("Getting reservation: {}", reservation_id);
         
-        // This would typically be implemented by:
-        // 1. Querying the local state store if this service had Kafka Streams
-        // 2. Making an HTTP call to a query service  
-        // 3. Querying a database that's populated by the reservation service
-        
-        Ok(None)
+        if let Some(store) = self.context.get_rocksdb_store(Stores::RESERVATION) {
+            match store.get::<Reservation>(reservation_id)? {
+                Some(reservation) => {
+                    info!("Found reservation: {} for user {}", reservation_id, reservation.user_id);
+                    Ok(Some(reservation))
+                }
+                None => {
+                    info!("No reservation found for id: {}", reservation_id);
+                    Ok(None)
+                }
+            }
+        } else {
+            info!("Reservation store not available");
+            Ok(None)
+        }
     }
 }
 

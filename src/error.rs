@@ -34,6 +34,12 @@ pub enum TicketMasterError {
     
     #[error("RocksDB error: {0}")]
     RocksDB(#[from] rocksdb::Error),
+    
+    #[error("Prometheus error: {0}")]
+    Prometheus(#[from] prometheus::Error),
+    
+    #[error("UTF-8 error: {0}")]
+    Utf8(#[from] std::string::FromUtf8Error),
 }
 
 pub type Result<T> = std::result::Result<T, TicketMasterError>;

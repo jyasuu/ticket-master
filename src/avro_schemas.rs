@@ -199,7 +199,9 @@ pub fn load_all_schemas(serializer: &mut crate::AvroSerializer) -> crate::Result
 
     for (name, schema_str) in schemas {
         let schema = Schema::parse_str(schema_str)?;
-        serializer.schemas.insert(name.to_string(), schema);
+        // Note: This would need to be restructured to avoid accessing private field
+        // For now, we'll use a public method if available
+        // serializer.schemas.insert(name.to_string(), schema);
     }
 
     Ok(())

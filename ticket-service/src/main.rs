@@ -7,7 +7,7 @@ use axum::{
 };
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, path::PathBuf};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 use ticket_master::{Result, ServiceConfig};
 use tower_http::cors::CorsLayer;
 use tracing::{info, error};
@@ -115,7 +115,7 @@ async fn main() -> Result<()> {
     info!("Config file: {:?}", args.config);
 
     // Load configuration
-    let config = load_config(&args.config)?;
+    let mut config = load_config(&args.config)?;
 
     if let Some(producer_config_path) = args.producer_config {
         info!("Loading producer config from: {:?}", producer_config_path);
@@ -123,7 +123,7 @@ async fn main() -> Result<()> {
     }
 
     // Create the ticket service
-    let ticket_service = TicketService::new(config).await?;
+    let ticket_service = Arc::new(TicketService::new(config).await?);
 
     // Build the router
     let app = Router::new()
@@ -146,7 +146,7 @@ async fn main() -> Result<()> {
 }
 
 async fn create_event(
-    State(service): State<TicketService>,
+    State(service): State<Arc<TicketService>>,
     Json(request): Json<CreateEventRequest>,
 ) -> std::result::Result<Json<ApiResponse<String>>, StatusCode> {
     match service.create_event(request).await {
@@ -159,7 +159,7 @@ async fn create_event(
 }
 
 async fn get_area_status(
-    State(service): State<TicketService>,
+    State(service): State<Arc<TicketService>>,
     Path((event_name, area_id)): Path<(String, String)>,
 ) -> std::result::Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
     match service.get_area_status(&event_name, &area_id).await {
@@ -173,7 +173,7 @@ async fn get_area_status(
 }
 
 async fn create_reservation(
-    State(service): State<TicketService>,
+    State(service): State<Arc<TicketService>>,
     Json(request): Json<CreateReservationRequest>,
 ) -> std::result::Result<Json<ApiResponse<String>>, StatusCode> {
     match service.create_reservation(request).await {
@@ -186,7 +186,7 @@ async fn create_reservation(
 }
 
 async fn get_reservation(
-    State(service): State<TicketService>,
+    State(service): State<Arc<TicketService>>,
     Path(reservation_id): Path<String>,
 ) -> std::result::Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
     match service.get_reservation(&reservation_id).await {

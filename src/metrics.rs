@@ -236,9 +236,9 @@ impl Metrics {
 }
 
 /// Metrics middleware for HTTP requests
-pub async fn metrics_middleware<B>(
-    req: axum::extract::Request<B>,
-    next: axum::middleware::Next<B>,
+pub async fn metrics_middleware(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
 ) -> axum::response::Response {
     let start = std::time::Instant::now();
     let response = next.run(req).await;

@@ -1,0 +1,88 @@
+# syntax=docker/dockerfile:1
+
+# Multi-stage build for Rust applications
+# Build stage
+FROM rust:1.75-slim as builder
+
+# Install system dependencies needed for building
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libsasl2-dev \
+    libzstd-dev \
+    cmake \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy Cargo files for dependency caching
+COPY Cargo.toml Cargo.lock ./
+COPY event-service/Cargo.toml ./event-service/
+COPY reservation-service/Cargo.toml ./reservation-service/
+COPY ticket-service/Cargo.toml ./ticket-service/
+
+# Create dummy source files to build dependencies
+RUN mkdir -p src event-service/src reservation-service/src ticket-service/src && \
+    echo "fn main() {}" > src/main.rs && \
+    echo "fn main() {}" > event-service/src/main.rs && \
+    echo "fn main() {}" > reservation-service/src/main.rs && \
+    echo "fn main() {}" > ticket-service/src/main.rs && \
+    echo "pub fn lib() {}" > src/lib.rs
+
+# Build dependencies (this layer will be cached)
+RUN cargo build --release && \
+    rm -rf src event-service/src reservation-service/src ticket-service/src target/release/deps/ticket_master* target/release/deps/event_service* target/release/deps/reservation_service* target/release/deps/ticket_service*
+
+# Copy actual source code
+COPY src/ src/
+COPY event-service/src/ event-service/src/
+COPY reservation-service/src/ reservation-service/src/
+COPY ticket-service/src/ ticket-service/src/
+COPY tests/ tests/
+
+# Build the actual applications
+RUN cargo build --release
+
+# Runtime stage
+FROM debian:bookworm-slim as runtime
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    libsasl2-2 \
+    libzstd1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a non-privileged user
+ARG UID=10001
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "/nonexistent" \
+    --shell "/sbin/nologin" \
+    --no-create-home \
+    --uid "${UID}" \
+    appuser
+
+# Copy the built binaries
+COPY --from=builder /build/target/release/event-service /usr/local/bin/
+COPY --from=builder /build/target/release/reservation-service /usr/local/bin/
+COPY --from=builder /build/target/release/ticket-service /usr/local/bin/
+
+# Set ownership and permissions
+RUN chown appuser:appuser /usr/local/bin/event-service /usr/local/bin/reservation-service /usr/local/bin/ticket-service && \
+    chmod +x /usr/local/bin/event-service /usr/local/bin/reservation-service /usr/local/bin/ticket-service
+
+USER appuser
+
+# Default to ticket-service (can be overridden)
+EXPOSE 8080
+
+# Environment variables for observability
+ENV RUST_LOG=info
+ENV OTEL_SERVICE_NAME=rust-ticket-service
+
+# Default command (can be overridden in docker-compose)
+CMD ["ticket-service", "--config", "/appConfig/client.docker.properties", "--port", "8080"]

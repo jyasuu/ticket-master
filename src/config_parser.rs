@@ -1,5 +1,5 @@
 use crate::{Result, TicketMasterError, ServiceConfig, KafkaConfig};
-use java_properties::PropertiesIter;
+use java_properties::{PropertiesIter, read};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
@@ -11,10 +11,8 @@ pub fn parse_properties_file<P: AsRef<Path>>(path: P, application_id: &str) -> R
         TicketMasterError::InvalidArgument(format!("Failed to open config file {:?}: {}", path.as_ref(), e))
     })?;
     
-    let reader = BufReader::new(file);
-    let properties: HashMap<String, String> = PropertiesIter::new(reader)
-        .collect::<std::result::Result<HashMap<_, _>, _>>()
-        .map_err(|e| TicketMasterError::InvalidArgument(format!("Failed to parse properties: {}", e)))?;
+    // Use the simpler read function from java-properties crate
+    let properties = read(file).map_err(|e| TicketMasterError::InvalidArgument(format!("Failed to parse properties: {}", e)))?;
 
     let mut kafka_config = KafkaConfig::default();
     let mut additional_properties = HashMap::new();
@@ -57,10 +55,8 @@ pub fn merge_stream_properties<P: AsRef<Path>>(mut config: ServiceConfig, path: 
         TicketMasterError::InvalidArgument(format!("Failed to open stream config file {:?}: {}", path.as_ref(), e))
     })?;
     
-    let reader = BufReader::new(file);
-    let properties: HashMap<String, String> = PropertiesIter::new(reader)
-        .collect::<std::result::Result<HashMap<_, _>, _>>()
-        .map_err(|e| TicketMasterError::InvalidArgument(format!("Failed to parse stream properties: {}", e)))?;
+    // Use the simpler read function from java-properties crate
+    let properties = read(file).map_err(|e| TicketMasterError::InvalidArgument(format!("Failed to parse stream properties: {}", e)))?;
 
     // Merge stream-specific properties
     for (key, value) in properties {

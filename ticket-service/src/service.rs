@@ -1,14 +1,13 @@
 use ticket_master::{
     Result, TicketMasterError, ServiceConfig, KafkaProducer, KafkaConsumer,
     CreateEvent, CreateReservation, Reservation, AreaStatus, Area, Seat,
-    ReservationType, Topics, Stores, event_area_key, ProcessingContext, RocksDBStore
+    ReservationType, Topics, Stores, event_area_key, ProcessingContext
 };
 use crate::{CreateEventRequest, CreateReservationRequest};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use tracing::info;
 
-#[derive(Clone)]
 pub struct TicketService {
     producer: KafkaProducer,
     consumer: KafkaConsumer,

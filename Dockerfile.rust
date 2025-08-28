@@ -2,7 +2,7 @@
 
 # Multi-stage build for Rust applications
 # Build stage
-FROM rust:1.75-slim as builder
+FROM rust:1.87-slim as builder
 
 # Install system dependencies needed for building
 RUN apt-get update && apt-get install -y \
@@ -12,37 +12,27 @@ RUN apt-get update && apt-get install -y \
     libzstd-dev \
     cmake \
     build-essential \
+    clang \
+    libclang-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 
-# Copy Cargo files for dependency caching
+# Copy workspace and service Cargo files for dependency caching
 COPY Cargo.toml Cargo.lock ./
 COPY event-service/Cargo.toml ./event-service/
 COPY reservation-service/Cargo.toml ./reservation-service/
 COPY ticket-service/Cargo.toml ./ticket-service/
 
-# Create dummy source files to build dependencies
-RUN mkdir -p src event-service/src reservation-service/src ticket-service/src && \
-    echo "fn main() {}" > src/main.rs && \
-    echo "fn main() {}" > event-service/src/main.rs && \
-    echo "fn main() {}" > reservation-service/src/main.rs && \
-    echo "fn main() {}" > ticket-service/src/main.rs && \
-    echo "pub fn lib() {}" > src/lib.rs
-
-# Build dependencies (this layer will be cached)
-RUN cargo build --release && \
-    rm -rf src event-service/src reservation-service/src ticket-service/src target/release/deps/ticket_master* target/release/deps/event_service* target/release/deps/reservation_service* target/release/deps/ticket_service*
-
-# Copy actual source code
+# Copy source code
 COPY src/ src/
 COPY event-service/src/ event-service/src/
 COPY reservation-service/src/ reservation-service/src/
 COPY ticket-service/src/ ticket-service/src/
 COPY tests/ tests/
 
-# Build the actual applications
-RUN cargo build --release
+# Build all applications in release mode
+RUN cargo build --release --workspace
 
 # Runtime stage
 FROM debian:bookworm-slim as runtime

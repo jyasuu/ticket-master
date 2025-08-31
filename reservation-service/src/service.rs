@@ -28,16 +28,14 @@ impl ReservationService {
             Topics::STATE_EVENT_AREA_STATUS,
         ])?;
 
-        // Initialize state stores with in-memory stores for now
+        // Initialize state stores with RocksDB (matching Java implementation)
         let context = ProcessingContext::with_state_dir(config.state_dir.clone());
         
-        // Reservation store
-        let reservation_store: StateStore<String, Reservation> = StateStore::new();
-        context.add_store(Stores::RESERVATION.to_string(), reservation_store);
+        // Reservation store (equivalent to Java's RESERVATION store)
+        context.add_rocksdb_store(Stores::RESERVATION.to_string(), "reservations")?;
         
-        // Area status cache
-        let area_status_cache: StateStore<String, AreaStatus> = StateStore::new();
-        context.add_store(Stores::EVENT_AREA_STATUS_CACHE.to_string(), area_status_cache);
+        // Area status cache (equivalent to Java's EVENT_AREA_STATUS_CACHE LRU store)
+        context.add_rocksdb_store(Stores::EVENT_AREA_STATUS_CACHE.to_string(), "area-status-cache")?;
 
         Ok(Self {
             consumer,
@@ -109,20 +107,16 @@ impl ReservationService {
         
         info!("Creating reservation: {}", reservation_id);
 
-        // Debug: Check if store exists
-        info!("Looking for reservation store: {}", Stores::RESERVATION);
-        let reservation_store: StateStore<String, Reservation> = self.context
-            .get_store(Stores::RESERVATION)
-            .ok_or_else(|| {
-                error!("Available stores: {:?}", self.context.stores.iter().map(|entry| entry.key().clone()).collect::<Vec<_>>());
-                TicketMasterError::InvalidArgument("Reservation store not found".to_string())
-            })?;
+        // Get RocksDB reservation store (matching Java implementation)
+        let reservation_store = self.context
+            .get_rocksdb_store(Stores::RESERVATION)
+            .ok_or_else(|| TicketMasterError::InvalidArgument("Reservation store not found".to_string()))?;
 
         // Create new reservation
         let reservation = Reservation::new(create_request);
         
-        // Store the reservation
-        reservation_store.put(reservation_id.clone(), reservation.clone());
+        // Store the reservation in RocksDB
+        reservation_store.put(reservation_id, &reservation)?;
 
         // Check reservation state and process accordingly
         match reservation.state {
@@ -174,17 +168,17 @@ impl ReservationService {
         
         info!("Processing reservation result: {} -> {:?}", reservation_id, result.result);
 
-        let reservation_store: StateStore<String, Reservation> = self.context
-            .get_store(Stores::RESERVATION)
+        let reservation_store = self.context
+            .get_rocksdb_store(Stores::RESERVATION)
             .ok_or_else(|| TicketMasterError::InvalidArgument("Reservation store not found".to_string()))?;
 
         // Get existing reservation
-        if let Some(mut reservation) = reservation_store.get(reservation_id) {
+        if let Some(mut reservation) = reservation_store.get::<Reservation>(reservation_id)? {
             // Update reservation with result
             reservation.update_from_result(&result);
             
             // Store updated reservation
-            reservation_store.put(reservation_id.clone(), reservation.clone());
+            reservation_store.put(reservation_id, &reservation)?;
 
             // Send to user reservation state topic
             self.producer.send(
@@ -207,17 +201,13 @@ impl ReservationService {
         
         let area_status: AreaStatus = message.deserialize_value()?;
         
-        // Debug: Check if store exists
-        info!("Looking for area status cache: {}", Stores::EVENT_AREA_STATUS_CACHE);
-        let area_status_cache: StateStore<String, AreaStatus> = self.context
-            .get_store(Stores::EVENT_AREA_STATUS_CACHE)
-            .ok_or_else(|| {
-                error!("Available stores: {:?}", self.context.stores.iter().map(|entry| entry.key().clone()).collect::<Vec<_>>());
-                TicketMasterError::InvalidArgument("Area status cache not found".to_string())
-            })?;
+        // Get RocksDB area status cache (matching Java LRU cache)
+        let area_status_cache = self.context
+            .get_rocksdb_store(Stores::EVENT_AREA_STATUS_CACHE)
+            .ok_or_else(|| TicketMasterError::InvalidArgument("Area status cache not found".to_string()))?;
 
         // Update cache
-        area_status_cache.put(event_area_key.clone(), area_status);
+        area_status_cache.put(event_area_key, &area_status)?;
         
         // Note: In a real implementation with LRU cache, you'd implement eviction logic here
         // For now, we just store everything in the DashMap

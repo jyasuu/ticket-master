@@ -2,10 +2,11 @@ use ticket_master::{
     Result, TicketMasterError, KafkaConsumer, Reservation, Topics, Stores,
     ProcessingContext
 };
+use crate::streams_enhanced_service::AsyncResponseWithMetadata;
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::Duration;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::Mutex;
 use tracing::{info, error, warn, instrument};
 
 /// Kafka Streams-style topology implementation for Rust
@@ -13,7 +14,7 @@ use tracing::{info, error, warn, instrument};
 pub struct KafkaStreamsTopology {
     consumer: Arc<KafkaConsumer>,
     context: Arc<ProcessingContext>,
-    outstanding_requests: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Reservation>>>>>,
+    outstanding_requests: Arc<Mutex<HashMap<String, AsyncResponseWithMetadata>>>,
     application_id: String,
 }
 
@@ -21,7 +22,7 @@ impl KafkaStreamsTopology {
     pub fn new(
         consumer: Arc<KafkaConsumer>,
         context: Arc<ProcessingContext>,
-        outstanding_requests: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Reservation>>>>>,
+        outstanding_requests: Arc<Mutex<HashMap<String, AsyncResponseWithMetadata>>>,
         application_id: String,
     ) -> Self {
         Self {
@@ -131,18 +132,42 @@ impl KafkaStreamsTopology {
         // reservationTable.toStream().foreach((reservationId, reservation) -> {
         //     final AsyncResponseWithMetadata asyncResponseWithMetadata = outstandingRequests.remove(reservationId);
         //     if(asyncResponseWithMetadata == null) return;
-        //     asyncResponse.resume(ReservationBean.fromAvro(reservation));
+        //     if (asyncResponse.isSuspended()) {
+        //         virtualExecutor.submit(()-> {
+        //             Span span = tracer.spanBuilder("async-handle-reservation").setParent(spanContext).startSpan();
+        //             try (Scope ignored = span.makeCurrent()) {
+        //                 asyncResponse.resume(ReservationBean.fromAvro(reservation));
+        //             } finally {
+        //                 span.end();
+        //             }
+        //         });
+        //     }
         // });
 
         let mut outstanding_requests = self.outstanding_requests.lock().await;
         
-        if let Some(sender) = outstanding_requests.remove(reservation_id) {
+        if let Some(async_response_with_metadata) = outstanding_requests.remove(reservation_id) {
             info!("Completing outstanding request for reservation: {}", reservation_id);
             
-            // Complete the outstanding request (equivalent to asyncResponse.resume())
-            if let Err(_) = sender.send(Ok(reservation)) {
-                warn!("Failed to send reservation to outstanding request - receiver may have been dropped");
-            }
+            // Create a new span for async handling (equivalent to Java's tracer.spanBuilder)
+            let reservation_id_owned = reservation_id.to_string(); // Convert to owned string
+            let async_span = tracing::info_span!(
+                "async-handle-reservation",
+                reservation_id = %reservation_id_owned,
+                user_id = %reservation.user_id
+            );
+            
+            // Complete the outstanding request with tracing context
+            // This is equivalent to Java's virtualExecutor.submit with span context
+            tokio::spawn(async move {
+                let _guard = async_span.enter();
+                info!("Processing async reservation completion for: {}", reservation_id_owned);
+                
+                // Complete the async response (equivalent to asyncResponse.resume())
+                async_response_with_metadata.complete(Ok(reservation));
+                
+                info!("Async reservation completion finished");
+            });
         } else {
             // No outstanding request for this reservation (normal case)
             info!("No outstanding request for reservation: {}", reservation_id);
@@ -186,7 +211,7 @@ impl TopologyBuilder {
         self,
         consumer: Arc<KafkaConsumer>,
         context: Arc<ProcessingContext>,
-        outstanding_requests: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Reservation>>>>>,
+        outstanding_requests: Arc<Mutex<HashMap<String, AsyncResponseWithMetadata>>>,
     ) -> KafkaStreamsTopology {
         KafkaStreamsTopology::new(consumer, context, outstanding_requests, self.application_id)
     }

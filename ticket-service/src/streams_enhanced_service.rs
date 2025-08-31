@@ -5,15 +5,49 @@ use ticket_master::{
 };
 use crate::kafka_streams_topology::{KafkaStreamsTopology, TopologyBuilder, StreamsConfig};
 use crate::distributed_service::HostInfo;
+use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerError};
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use crate::{CreateEventRequest, CreateReservationRequest};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use tracing::{info, warn, error, instrument};
+use tracing::{info, warn, error, instrument, Span};
 use tokio::sync::{oneshot, Mutex};
 use reqwest::Client;
+
+/// Async response with metadata - equivalent to Java's AsyncResponseWithMetadata
+#[derive(Debug)]
+pub struct AsyncResponseWithMetadata {
+    pub sender: oneshot::Sender<Result<Reservation>>,
+    pub span_context: Span,
+    pub start_time: Instant,
+}
+
+impl AsyncResponseWithMetadata {
+    pub fn new(sender: oneshot::Sender<Result<Reservation>>, span_context: Span) -> Self {
+        Self {
+            sender,
+            span_context,
+            start_time: Instant::now(),
+        }
+    }
+
+    /// Complete the async response - equivalent to Java's asyncResponse.resume()
+    pub fn complete(self, result: Result<Reservation>) {
+        let _guard = self.span_context.enter();
+        info!("Completing async response after {:?}", self.start_time.elapsed());
+        
+        if let Err(_) = self.sender.send(result) {
+            warn!("Failed to complete async response - receiver may have been dropped");
+        }
+    }
+
+    /// Check if the response has timed out - equivalent to Java's asyncResponse.isDone()
+    pub fn is_timed_out(&self, timeout: Duration) -> bool {
+        self.start_time.elapsed() >= timeout
+    }
+}
 
 /// Enhanced Ticket Service with true Kafka Streams topology support
 /// This version implements the exact equivalent of Java's createTopology() method
@@ -23,9 +57,10 @@ pub struct StreamsEnhancedTicketService {
     context: Arc<ProcessingContext>,
     http_client: Client,
     local_host: HostInfo,
-    outstanding_requests: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Reservation>>>>>,
+    outstanding_requests: Arc<Mutex<HashMap<String, AsyncResponseWithMetadata>>>,
     topology: Option<KafkaStreamsTopology>,
     config: ServiceConfig,
+    circuit_breaker: Arc<CircuitBreaker>,
 }
 
 impl Clone for StreamsEnhancedTicketService {
@@ -39,6 +74,7 @@ impl Clone for StreamsEnhancedTicketService {
             outstanding_requests: Arc::clone(&self.outstanding_requests),
             topology: None, // Topology is not cloneable, will be recreated if needed
             config: self.config.clone(),
+            circuit_breaker: Arc::clone(&self.circuit_breaker),
         }
     }
 }
@@ -65,6 +101,23 @@ impl StreamsEnhancedTicketService {
 
         let outstanding_requests = Arc::new(Mutex::new(HashMap::new()));
 
+        // Initialize circuit breaker for remote service calls
+        let circuit_breaker = Arc::new(CircuitBreaker::new(
+            5,                              // failure_threshold: 5 failures to open circuit
+            Duration::from_secs(30),        // recovery_timeout: 30 seconds before trying again
+            Duration::from_secs(10),        // request_timeout: 10 seconds per request
+        ));
+
+        // Start cleanup task for outstanding requests (equivalent to Java's CompletionCallback)
+        let cleanup_requests = Arc::clone(&outstanding_requests);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                Self::cleanup_timed_out_requests(&cleanup_requests, Duration::from_secs(30)).await;
+            }
+        });
+
         Ok(Self { 
             producer,
             consumer: Arc::new(consumer),
@@ -74,6 +127,7 @@ impl StreamsEnhancedTicketService {
             outstanding_requests,
             topology: None,
             config,
+            circuit_breaker,
         })
     }
 
@@ -226,12 +280,73 @@ impl StreamsEnhancedTicketService {
         self.get_reservation_with_timeout(reservation_id, Duration::from_secs(10)).await
     }
 
-    /// Get reservation with timeout - now using Kafka Streams topology
+    /// Get reservation with timeout - now using Kafka Streams topology with distributed querying
+    /// This is the exact equivalent of Java's fetchReservation method
     #[instrument(skip(self), fields(reservation_id = %reservation_id, timeout_secs = timeout_duration.as_secs()))]
     pub async fn get_reservation_with_timeout(&self, reservation_id: &str, timeout_duration: Duration) -> Result<Option<Reservation>> {
         info!("Getting reservation: {} with timeout: {:?}", reservation_id, timeout_duration);
         
-        // Check local store first (equivalent to Java's local store check)
+        // Step 1: Get key location metadata (equivalent to Java's getKeyLocationOrBlock)
+        let host_for_key = self.get_key_location_or_block(reservation_id, timeout_duration).await?;
+        
+        // Step 2: Check if data is local or remote (equivalent to Java's host comparison)
+        if host_for_key.host == self.local_host.host && host_for_key.port == self.local_host.port {
+            // Data is local - fetch from local store (equivalent to fetchReservationFromLocal)
+            self.fetch_reservation_from_local(reservation_id, timeout_duration).await
+        } else {
+            // Data is on remote host - fetch from remote (equivalent to fetchReservationFromOtherHost)
+            self.fetch_reservation_from_other_host(&host_for_key, reservation_id).await
+        }
+    }
+
+    /// Get key location with blocking and timeout - equivalent to Java's getKeyLocationOrBlock
+    #[instrument(skip(self), fields(reservation_id = %reservation_id))]
+    async fn get_key_location_or_block(&self, reservation_id: &str, timeout_duration: Duration) -> Result<HostInfo> {
+        let start_time = Instant::now();
+        
+        loop {
+            // Simulate metadata query (in real implementation, this would query Kafka metadata)
+            // For now, we assume data is always local, but this structure matches Java exactly
+            let metadata = self.query_metadata_for_key(reservation_id).await?;
+            
+            if let Some(host_info) = metadata {
+                info!("Found metadata for reservation {}: {}:{}", reservation_id, host_info.host, host_info.port);
+                return Ok(host_info);
+            }
+            
+            // Check timeout (equivalent to Java's asyncResponse.isDone() check)
+            if start_time.elapsed() >= timeout_duration {
+                return Err(TicketMasterError::Timeout(
+                    format!("Metadata lookup timed out after {:?}", timeout_duration)
+                ));
+            }
+            
+            // Sleep before retry (equivalent to Java's Thread.sleep(200))
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    /// Query metadata for key - equivalent to Java's streams.queryMetadataForKey
+    #[instrument(skip(self), fields(reservation_id = %reservation_id))]
+    async fn query_metadata_for_key(&self, reservation_id: &str) -> Result<Option<HostInfo>> {
+        // In a real implementation, this would query Kafka Streams metadata
+        // For now, we simulate by always returning local host
+        // This matches the Java pattern where metadata might not be available during startup/rebalance
+        
+        // Simulate metadata not available during startup (like Java's KeyQueryMetadata.NOT_AVAILABLE)
+        if self.context.get_rocksdb_store(Stores::RESERVATION).is_none() {
+            return Ok(None);
+        }
+        
+        // For simplicity, always return local host
+        // In real implementation, this would use consistent hashing to determine the correct host
+        Ok(Some(self.local_host.clone()))
+    }
+
+    /// Fetch reservation from local store - equivalent to Java's fetchReservationFromLocal
+    #[instrument(skip(self), fields(reservation_id = %reservation_id))]
+    async fn fetch_reservation_from_local(&self, reservation_id: &str, timeout_duration: Duration) -> Result<Option<Reservation>> {
+        // Check local store first
         if let Some(store) = self.context.get_rocksdb_store(Stores::RESERVATION) {
             if let Some(reservation) = store.get::<Reservation>(reservation_id)? {
                 info!("Found reservation locally: {} for user {}", reservation_id, reservation.user_id);
@@ -245,10 +360,18 @@ impl StreamsEnhancedTicketService {
         
         let (sender, receiver) = oneshot::channel();
         
-        // Register the outstanding request (equivalent to Java's outstandingRequests.put())
+        // Create span for tracing (equivalent to Java's Context.current())
+        let span = tracing::info_span!(
+            "outstanding-request",
+            reservation_id = %reservation_id,
+            timeout_secs = timeout_duration.as_secs()
+        );
+        
+        // Register the outstanding request with metadata (equivalent to Java's outstandingRequests.put())
         {
             let mut outstanding_requests = self.outstanding_requests.lock().await;
-            outstanding_requests.insert(reservation_id.to_string(), sender);
+            let async_response = AsyncResponseWithMetadata::new(sender, span);
+            outstanding_requests.insert(reservation_id.to_string(), async_response);
         }
 
         // Double-check after registering (race condition protection, same as Java)
@@ -285,6 +408,80 @@ impl StreamsEnhancedTicketService {
         }
     }
 
+    /// Fetch reservation from other host - equivalent to Java's fetchReservationFromOtherHost
+    /// Now enhanced with circuit breaker pattern for resilience
+    #[instrument(skip(self), fields(reservation_id = %reservation_id, host = %host_info.host, port = host_info.port))]
+    async fn fetch_reservation_from_other_host(&self, host_info: &HostInfo, reservation_id: &str) -> Result<Option<Reservation>> {
+        let url = format!("http://{}:{}/reservations/{}", host_info.host, host_info.port, reservation_id);
+        
+        info!("Fetching reservation from remote host with circuit breaker: {}", url);
+        
+        // Execute the remote call through circuit breaker
+        let circuit_breaker = Arc::clone(&self.circuit_breaker);
+        let http_client = self.http_client.clone();
+        
+        let remote_call = async move {
+            let response = http_client.get(&url)
+                .header("Accept", "application/json")
+                .send()
+                .await
+                .map_err(|e| TicketMasterError::HttpClient(e.to_string()))?;
+
+            if response.status().is_success() {
+                let api_response: crate::ApiResponse<serde_json::Value> = response.json().await
+                    .map_err(|e| TicketMasterError::HttpClient(e.to_string()))?;
+
+                if api_response.success {
+                    if let Some(data) = api_response.data {
+                        let reservation = serde_json::from_value::<Reservation>(data)
+                            .map_err(|e| TicketMasterError::Json(e))?;
+                        info!("Successfully fetched reservation from remote host: {}", reservation_id);
+                        Ok(Some(reservation))
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    if let Some(error_msg) = api_response.error {
+                        if error_msg.contains("not found") {
+                            Ok(None)
+                        } else {
+                            Err(TicketMasterError::RemoteService(error_msg))
+                        }
+                    } else {
+                        Err(TicketMasterError::RemoteService("Unknown remote error".to_string()))
+                    }
+                }
+            } else if response.status() == 404 {
+                Ok(None)
+            } else {
+                Err(TicketMasterError::RemoteService(
+                    format!("Remote service returned status: {}", response.status())
+                ))
+            }
+        };
+
+        // Execute through circuit breaker
+        match circuit_breaker.execute(remote_call).await {
+            Ok(result) => Ok(result),
+            Err(CircuitBreakerError::CircuitOpen) => {
+                warn!("Circuit breaker is open for remote host: {}:{}", host_info.host, host_info.port);
+                Err(TicketMasterError::ServiceUnavailable(
+                    format!("Remote service {}:{} is unavailable (circuit breaker open)", host_info.host, host_info.port)
+                ))
+            }
+            Err(CircuitBreakerError::Timeout) => {
+                warn!("Remote call timed out to host: {}:{}", host_info.host, host_info.port);
+                Err(TicketMasterError::Timeout(
+                    format!("Remote service call timed out: {}:{}", host_info.host, host_info.port)
+                ))
+            }
+            Err(CircuitBreakerError::RequestFailed(e)) => {
+                warn!("Remote call failed to host: {}:{} - {}", host_info.host, host_info.port, e);
+                Err(e)
+            }
+        }
+    }
+
     /// Health check
     pub async fn health_check(&self) -> Result<String> {
         if self.context.get_rocksdb_store(Stores::RESERVATION).is_some() {
@@ -300,6 +497,49 @@ impl StreamsEnhancedTicketService {
     pub async fn get_outstanding_requests_count(&self) -> usize {
         let outstanding_requests = self.outstanding_requests.lock().await;
         outstanding_requests.len()
+    }
+
+    /// Get circuit breaker metrics for monitoring
+    pub async fn get_circuit_breaker_metrics(&self) -> serde_json::Value {
+        let metrics = self.circuit_breaker.get_metrics().await;
+        serde_json::json!({
+            "state": format!("{:?}", metrics.state),
+            "failure_count": metrics.failure_count,
+            "success_count": metrics.success_count,
+            "last_failure_time": metrics.last_failure_time.map(|t| t.elapsed().as_secs()),
+            "is_healthy": matches!(metrics.state, crate::circuit_breaker::CircuitState::Closed)
+        })
+    }
+
+    /// Cleanup timed out requests - equivalent to Java's CompletionCallback.onComplete()
+    #[instrument(skip(outstanding_requests))]
+    async fn cleanup_timed_out_requests(
+        outstanding_requests: &Arc<Mutex<HashMap<String, AsyncResponseWithMetadata>>>,
+        max_age: Duration,
+    ) {
+        let mut requests = outstanding_requests.lock().await;
+        let mut to_remove = Vec::new();
+        
+        for (reservation_id, async_response) in requests.iter() {
+            if async_response.is_timed_out(max_age) {
+                warn!("Outstanding request timed out: {} (age: {:?})", reservation_id, async_response.start_time.elapsed());
+                to_remove.push(reservation_id.clone());
+            }
+        }
+        
+        for reservation_id in to_remove {
+            if let Some(async_response) = requests.remove(&reservation_id) {
+                info!("Cleaning up timed out request: {}", reservation_id);
+                // Complete with timeout error
+                async_response.complete(Err(TicketMasterError::Timeout(
+                    format!("Request timed out after {:?}", max_age)
+                )));
+            }
+        }
+        
+        if !requests.is_empty() {
+            info!("Outstanding requests count: {}", requests.len());
+        }
     }
 }
 

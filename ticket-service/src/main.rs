@@ -16,10 +16,12 @@ mod service;
 mod distributed_service;
 mod kafka_streams_topology;
 mod streams_enhanced_service;
+mod circuit_breaker;
 
 use service::TicketService;
 use distributed_service::{DistributedTicketService, HostInfo};
-use kafka_streams_topology::{KafkaStreamsTopology, TopologyBuilder, StreamsConfig};
+// Kafka Streams topology imports (used in streams mode)
+// use kafka_streams_topology::{KafkaStreamsTopology, TopologyBuilder, StreamsConfig};
 use streams_enhanced_service::StreamsEnhancedTicketService;
 
 #[derive(Parser, Debug)]
@@ -260,6 +262,7 @@ async fn run_streams_enhanced_service(config: ServiceConfig, args: Args) -> Resu
         .route("/reservations/:reservation_id/timeout/:timeout_secs", get(get_reservation_with_timeout_streams))
         .route("/health", get(health_check_streams))
         .route("/metrics/outstanding-requests", get(get_outstanding_requests_count_streams))
+        .route("/metrics/circuit-breaker", get(get_circuit_breaker_metrics_streams))
         .layer(CorsLayer::permissive())
         .with_state(Arc::new(streams_service));
 
@@ -529,6 +532,13 @@ async fn get_outstanding_requests_count_streams(
 ) -> Json<ApiResponse<usize>> {
     let count = service.get_outstanding_requests_count().await;
     Json(ApiResponse::success(count))
+}
+
+async fn get_circuit_breaker_metrics_streams(
+    State(service): State<Arc<StreamsEnhancedTicketService>>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let metrics = service.get_circuit_breaker_metrics().await;
+    Json(ApiResponse::success(metrics))
 }
 
 fn load_config(config_path: &PathBuf) -> Result<ServiceConfig> {

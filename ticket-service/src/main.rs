@@ -14,9 +14,13 @@ use tracing::{info, error};
 
 mod service;
 mod distributed_service;
+mod kafka_streams_topology;
+mod streams_enhanced_service;
 
 use service::TicketService;
 use distributed_service::{DistributedTicketService, HostInfo};
+use kafka_streams_topology::{KafkaStreamsTopology, TopologyBuilder, StreamsConfig};
+use streams_enhanced_service::StreamsEnhancedTicketService;
 
 #[derive(Parser, Debug)]
 #[command(name = "ticket-service")]
@@ -41,6 +45,10 @@ struct Args {
     /// Enable distributed mode with enhanced features
     #[arg(long = "distributed")]
     distributed: bool,
+
+    /// Enable Kafka Streams topology mode (exact Java equivalent)
+    #[arg(long = "streams")]
+    streams: bool,
 
     /// Hostname for this service instance
     #[arg(long = "hostname", default_value = "localhost")]
@@ -132,7 +140,10 @@ async fn main() -> Result<()> {
         config = ticket_master::merge_stream_properties(config, producer_config_path.clone())?;
     }
 
-    if args.distributed {
+    if args.streams {
+        info!("Starting in Kafka Streams topology mode (exact Java equivalent)");
+        run_streams_enhanced_service(config, args).await
+    } else if args.distributed {
         info!("Starting in distributed mode with enhanced features");
         run_distributed_service(config, args).await
     } else {
@@ -224,6 +235,37 @@ async fn run_standard_service(config: ServiceConfig, args: Args) -> Result<()> {
     // Start the server
     let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
     info!("Ticket Service listening on {}", addr);
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}
+
+async fn run_streams_enhanced_service(config: ServiceConfig, args: Args) -> Result<()> {
+    let host_info = HostInfo::new(args.hostname.clone(), args.port);
+    
+    // Create the streams enhanced ticket service
+    let mut streams_service = StreamsEnhancedTicketService::new(config, host_info).await?;
+
+    // Start the Kafka Streams topology (equivalent to Java's createTopology())
+    streams_service.start_streams_topology().await?;
+
+    // Build the router with streams-enhanced endpoints
+    let app = Router::new()
+        .route("/events", post(create_event_streams))
+        .route("/events/:event_name/areas/:area_id", get(get_area_status_streams))
+        .route("/reservations", post(create_reservation_streams))
+        .route("/reservations/:reservation_id", get(get_reservation_streams))
+        .route("/reservations/:reservation_id/timeout/:timeout_secs", get(get_reservation_with_timeout_streams))
+        .route("/health", get(health_check_streams))
+        .route("/metrics/outstanding-requests", get(get_outstanding_requests_count_streams))
+        .layer(CorsLayer::permissive())
+        .with_state(Arc::new(streams_service));
+
+    // Start the server
+    let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
+    info!("Kafka Streams Enhanced Ticket Service listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
@@ -373,6 +415,117 @@ async fn health_check_distributed(
 
 async fn get_outstanding_requests_count(
     State(service): State<Arc<DistributedTicketService>>,
+) -> Json<ApiResponse<usize>> {
+    let count = service.get_outstanding_requests_count().await;
+    Json(ApiResponse::success(count))
+}
+
+// Kafka Streams enhanced endpoints (exact Java createTopology equivalent)
+async fn create_event_streams(
+    State(service): State<Arc<StreamsEnhancedTicketService>>,
+    Json(request): Json<CreateEventRequest>,
+) -> std::result::Result<Json<ApiResponse<String>>, StatusCode> {
+    match service.create_event(request).await {
+        Ok(event_name) => Ok(Json(ApiResponse::success(event_name))),
+        Err(e) => {
+            error!("Error creating event: {}", e);
+            Ok(Json(ApiResponse::error(e.to_string())))
+        }
+    }
+}
+
+async fn get_area_status_streams(
+    State(service): State<Arc<StreamsEnhancedTicketService>>,
+    Path((event_name, area_id)): Path<(String, String)>,
+) -> std::result::Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
+    match service.get_area_status(&event_name, &area_id).await {
+        Ok(Some(area_status)) => Ok(Json(ApiResponse::success(serde_json::to_value(area_status).unwrap()))),
+        Ok(None) => Ok(Json(ApiResponse::error("Area not found".to_string()))),
+        Err(e) => {
+            error!("Error getting area status: {}", e);
+            Ok(Json(ApiResponse::error(e.to_string())))
+        }
+    }
+}
+
+async fn create_reservation_streams(
+    State(service): State<Arc<StreamsEnhancedTicketService>>,
+    Json(request): Json<CreateReservationRequest>,
+) -> std::result::Result<Json<ApiResponse<String>>, StatusCode> {
+    match service.create_reservation(request).await {
+        Ok(reservation_id) => Ok(Json(ApiResponse::success(reservation_id))),
+        Err(e) => {
+            error!("Error creating reservation: {}", e);
+            Ok(Json(ApiResponse::error(e.to_string())))
+        }
+    }
+}
+
+async fn get_reservation_streams(
+    State(service): State<Arc<StreamsEnhancedTicketService>>,
+    Path(reservation_id): Path<String>,
+) -> std::result::Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
+    match service.get_reservation(&reservation_id).await {
+        Ok(Some(reservation)) => Ok(Json(ApiResponse::success(serde_json::to_value(reservation).unwrap()))),
+        Ok(None) => Ok(Json(ApiResponse::error("Reservation not found".to_string()))),
+        Err(e) => {
+            error!("Error getting reservation: {}", e);
+            match e {
+                ticket_master::TicketMasterError::ServiceUnavailable(_) => {
+                    Err(StatusCode::SERVICE_UNAVAILABLE)
+                }
+                ticket_master::TicketMasterError::Timeout(_) => {
+                    Ok(Json(ApiResponse::error("Request timed out".to_string())))
+                }
+                _ => Ok(Json(ApiResponse::error(e.to_string())))
+            }
+        }
+    }
+}
+
+async fn get_reservation_with_timeout_streams(
+    State(service): State<Arc<StreamsEnhancedTicketService>>,
+    Path((reservation_id, timeout_secs)): Path<(String, u64)>,
+) -> std::result::Result<Json<ApiResponse<serde_json::Value>>, StatusCode> {
+    let timeout_duration = Duration::from_secs(timeout_secs);
+    
+    match service.get_reservation_with_timeout(&reservation_id, timeout_duration).await {
+        Ok(Some(reservation)) => Ok(Json(ApiResponse::success(serde_json::to_value(reservation).unwrap()))),
+        Ok(None) => Ok(Json(ApiResponse::error("Reservation not found".to_string()))),
+        Err(e) => {
+            error!("Error getting reservation with timeout: {}", e);
+            match e {
+                ticket_master::TicketMasterError::ServiceUnavailable(_) => {
+                    Err(StatusCode::SERVICE_UNAVAILABLE)
+                }
+                ticket_master::TicketMasterError::Timeout(_) => {
+                    Ok(Json(ApiResponse::error("Request timed out".to_string())))
+                }
+                _ => Ok(Json(ApiResponse::error(e.to_string())))
+            }
+        }
+    }
+}
+
+async fn health_check_streams(
+    State(service): State<Arc<StreamsEnhancedTicketService>>,
+) -> std::result::Result<Json<ApiResponse<String>>, StatusCode> {
+    match service.health_check().await {
+        Ok(status) => Ok(Json(ApiResponse::success(status))),
+        Err(e) => {
+            error!("Health check failed: {}", e);
+            match e {
+                ticket_master::TicketMasterError::ServiceUnavailable(_) => {
+                    Err(StatusCode::SERVICE_UNAVAILABLE)
+                }
+                _ => Ok(Json(ApiResponse::error(e.to_string())))
+            }
+        }
+    }
+}
+
+async fn get_outstanding_requests_count_streams(
+    State(service): State<Arc<StreamsEnhancedTicketService>>,
 ) -> Json<ApiResponse<usize>> {
     let count = service.get_outstanding_requests_count().await;
     Json(ApiResponse::success(count))

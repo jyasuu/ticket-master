@@ -176,3 +176,18 @@ When contributing to the Rust migration:
 3. Add comprehensive documentation
 4. Write unit tests for new functionality
 5. Ensure thread safety for concurrent operations
+
+
+## Test Steps
+
+```bash
+cargo build --release --workspace
+docker compose -f docker-compose.rust.yml up -d
+docker compose -f docker-compose.rust.yml logs event-service-rust -f
+docker compose -f docker-compose.rust.yml logs reservation-service-rust -f
+docker compose -f docker-compose.rust.yml logs ticket-service-rust -f
+```
+
+
+
+

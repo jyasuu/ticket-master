@@ -182,6 +182,8 @@ When contributing to the Rust migration:
 
 ```bash
 cargo build --release --workspace
+docker compose -f docker-compose.rust.yml build
+docker compose -f docker-compose.rust.yml down
 docker compose -f docker-compose.rust.yml up -d
 docker compose -f docker-compose.rust.yml logs event-service-rust -f
 docker compose -f docker-compose.rust.yml logs reservation-service-rust -f

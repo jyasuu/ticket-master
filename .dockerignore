@@ -47,7 +47,6 @@ README.md
 **/nbbuild
 **/nbdist
 **/nbproject/private
-**/target
 *.ctxt
 .mtj.tmp
 .mvn/timing.properties

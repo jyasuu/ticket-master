@@ -111,7 +111,8 @@ impl ReservationStrategy for RandomStrategy {
     }
 }
 
-// Continuous random strategy that tries to find adjacent seats
+// Advanced continuous random strategy - equivalent to Java's ContinuousRandomStrategy
+// Implements the sophisticated sliding window algorithm from Java
 pub struct ContinuousRandomStrategy;
 
 impl ReservationStrategy for ContinuousRandomStrategy {
@@ -126,40 +127,72 @@ impl ReservationStrategy for ContinuousRandomStrategy {
 
         let num_seats_requested = request.num_of_seats;
         
-        // Check if enough seats are available
-        if area_status.available_seats < num_seats_requested {
-            result.error_code = Some(ReservationErrorCode::InsufficientSeats);
-            result.error_message = Some(format!(
-                "Not enough seats available. Requested: {}, Available: {}", 
-                num_seats_requested, area_status.available_seats
-            ));
+        // Validate input
+        if num_seats_requested <= 0 {
+            result.error_code = Some(ReservationErrorCode::InvalidArgument);
+            result.error_message = Some(format!("{} continuous seats is invalid", num_seats_requested));
             return Ok(result);
         }
 
-        // Try to find continuous seats in each row
-        for (row_idx, row) in area_status.seats.iter().enumerate() {
-            let mut continuous_seats = Vec::new();
+        let row_count = area_status.row_count as usize;
+        let col_count = area_status.col_count as usize;
+        
+        // Implement Java's sophisticated sliding window algorithm
+        for row_idx in 0..row_count {
+            let row_seats = &area_status.seats[row_idx];
+            let mut left = 0;
             
-            for (col_idx, seat_status) in row.iter().enumerate() {
-                if seat_status.is_available {
-                    continuous_seats.push(Seat {
-                        row: row_idx as i32,
-                        col: col_idx as i32,
-                    });
-                    
-                    if continuous_seats.len() == num_seats_requested as usize {
-                        result.result = ReservationResultEnum::Success;
-                        result.seats = continuous_seats;
-                        return Ok(result);
+            // Sliding window approach - equivalent to Java's while loop
+            while num_seats_requested as usize <= col_count - left {
+                // Skip unavailable starting seats
+                if !row_seats[left].is_available {
+                    left += 1;
+                    continue;
+                }
+                
+                // Expand window to the right
+                let mut right = left + 1;
+                while right < left + num_seats_requested as usize {
+                    if right >= col_count || !row_seats[right].is_available {
+                        // Gap found, move left pointer past the gap
+                        left = right + 1;
+                        break;
                     }
-                } else {
-                    continuous_seats.clear();
+                    right += 1;
+                }
+                
+                // Check if we found enough continuous seats
+                if right - left == num_seats_requested as usize {
+                    // Found continuous seats - create the seat list
+                    let mut seats = Vec::new();
+                    for col in left..right {
+                        seats.push(Seat {
+                            row: row_idx as i32,
+                            col: col as i32,
+                        });
+                    }
+                    
+                    result.result = ReservationResultEnum::Success;
+                    result.seats = seats;
+                    return Ok(result);
+                }
+                
+                // If we didn't break out of the inner loop, increment left
+                if right == left + num_seats_requested as usize {
+                    left += 1;
                 }
             }
         }
 
-        // If no continuous seats found, fall back to random selection
-        let random_strategy = RandomStrategy;
-        random_strategy.reserve(area_status, request)
+        // No continuous seats found - return failure with detailed message
+        result.error_code = Some(ReservationErrorCode::SeatNotAvailable);
+        result.error_message = Some(format!(
+            "no continuous {} seats at area {} in event {}", 
+            num_seats_requested, 
+            request.area_id, 
+            request.event_id
+        ));
+        
+        Ok(result)
     }
 }

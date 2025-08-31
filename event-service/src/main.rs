@@ -5,8 +5,11 @@ use tracing::{info, error};
 
 mod service;
 mod strategies;
+mod topology;
+mod enhanced_service;
 
 use service::EventService;
+use enhanced_service::EnhancedEventService;
 
 #[derive(Parser, Debug)]
 #[command(name = "event-service")]
@@ -27,6 +30,10 @@ struct Args {
     /// Show help information
     #[arg(short = 'h', long = "help")]
     help: bool,
+
+    /// Enable enhanced mode with Kafka Streams topology (exact Java equivalent)
+    #[arg(long = "enhanced")]
+    enhanced: bool,
 }
 
 #[tokio::main]
@@ -58,13 +65,27 @@ async fn main() -> Result<()> {
         config = ticket_master::merge_stream_properties(config, stream_config_path)?;
     }
 
-    // Create and start the event service
-    let service = EventService::new(config).await?;
-    
-    info!("Event Service started successfully");
-    
-    // Run the service
-    service.run().await?;
+    if args.enhanced {
+        info!("Starting Enhanced Event Service with Kafka Streams topology");
+        
+        // Create and start the enhanced event service
+        let enhanced_service = EnhancedEventService::new(config).await?;
+        
+        info!("Enhanced Event Service started successfully");
+        
+        // Run the enhanced service
+        enhanced_service.run().await?;
+    } else {
+        info!("Starting Standard Event Service");
+        
+        // Create and start the standard event service
+        let service = EventService::new(config).await?;
+        
+        info!("Standard Event Service started successfully");
+        
+        // Run the service
+        service.run().await?;
+    }
 
     Ok(())
 }

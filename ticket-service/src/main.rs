@@ -125,6 +125,14 @@ async fn main() -> Result<()> {
     // Create the ticket service
     let ticket_service = Arc::new(TicketService::new(config).await?);
 
+    // Start the consumer in the background to sync state
+    let service_for_consumer = Arc::clone(&ticket_service);
+    tokio::spawn(async move {
+        if let Err(e) = service_for_consumer.run_consumer().await {
+            tracing::error!("Consumer error: {}", e);
+        }
+    });
+
     // Build the router
     let app = Router::new()
         .route("/events", post(create_event))

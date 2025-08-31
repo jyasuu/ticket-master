@@ -3,6 +3,7 @@ use ticket_master::{
     CreateEvent, CreateReservation, Reservation, AreaStatus, Area, Seat,
     ReservationType, Topics, Stores, event_area_key, ProcessingContext
 };
+use std::sync::Arc;
 use crate::{CreateEventRequest, CreateReservationRequest};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -10,8 +11,18 @@ use tracing::info;
 
 pub struct TicketService {
     producer: KafkaProducer,
-    consumer: KafkaConsumer,
-    context: ProcessingContext,
+    consumer: Arc<KafkaConsumer>,
+    context: Arc<ProcessingContext>,
+}
+
+impl Clone for TicketService {
+    fn clone(&self) -> Self {
+        Self {
+            producer: self.producer.clone(),
+            consumer: Arc::clone(&self.consumer),
+            context: Arc::clone(&self.context),
+        }
+    }
 }
 
 impl TicketService {
@@ -19,6 +30,11 @@ impl TicketService {
         let kafka_config = config.to_kafka_config();
         let producer = KafkaProducer::new(kafka_config.clone())?;
         let consumer = KafkaConsumer::new(kafka_config)?;
+
+        // Subscribe to state topics to populate local stores (matching Java implementation)
+        consumer.subscribe(&[
+            Topics::STATE_USER_RESERVATION,  // To populate reservation store
+        ])?;
 
         // Initialize state stores for querying
         let context = ProcessingContext::with_state_dir(config.state_dir.clone());
@@ -29,9 +45,77 @@ impl TicketService {
 
         Ok(Self { 
             producer,
-            consumer,
-            context,
+            consumer: Arc::new(consumer),
+            context: Arc::new(context),
         })
+    }
+
+    pub async fn run_consumer(&self) -> Result<()> {
+        info!("Starting Ticket Service consumer for state synchronization...");
+        
+        loop {
+            tokio::select! {
+                // Handle shutdown signal
+                _ = tokio::signal::ctrl_c() => {
+                    info!("Received shutdown signal for consumer");
+                    break;
+                }
+                
+                // Process state messages
+                message_result = self.consumer.recv_message(std::time::Duration::from_millis(100)) => {
+                    match message_result? {
+                        Some(message) => {
+                            if let Err(e) = self.process_state_message(&message).await {
+                                tracing::error!("Error processing state message: {}", e);
+                            } else {
+                                // Commit the message after successful processing
+                                if let Err(e) = self.consumer.commit_message(&message) {
+                                    tracing::error!("Error committing message: {}", e);
+                                }
+                            }
+                        }
+                        None => {
+                            // No message received (timeout)
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
+        info!("Ticket Service consumer shutting down...");
+        Ok(())
+    }
+
+    async fn process_state_message(&self, message: &ticket_master::KafkaMessage) -> Result<()> {
+        match message.topic.as_str() {
+            Topics::STATE_USER_RESERVATION => {
+                self.handle_reservation_state_update(message).await
+            }
+            _ => {
+                tracing::warn!("Unknown state topic: {}", message.topic);
+                Ok(())
+            }
+        }
+    }
+
+    async fn handle_reservation_state_update(&self, message: &ticket_master::KafkaMessage) -> Result<()> {
+        let reservation_id = message.key.as_ref()
+            .ok_or_else(|| TicketMasterError::InvalidArgument("Missing reservation ID key".to_string()))?;
+        
+        let reservation: Reservation = message.deserialize_value()?;
+        
+        info!("Updating local reservation store: {} -> {:?}", reservation_id, reservation.state);
+
+        // Get reservation store and update it
+        if let Some(store) = self.context.get_rocksdb_store(Stores::RESERVATION) {
+            store.put(reservation_id, &reservation)?;
+            info!("Successfully updated reservation {} in local store", reservation_id);
+        } else {
+            tracing::warn!("Reservation store not available for update");
+        }
+
+        Ok(())
     }
 
     pub async fn create_event(&self, request: CreateEventRequest) -> Result<String> {

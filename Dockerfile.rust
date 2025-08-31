@@ -2,37 +2,37 @@
 
 # Multi-stage build for Rust applications
 # Build stage
-FROM rust:1.87-slim as builder
+# FROM rust:1.87-slim as builder
 
-# Install system dependencies needed for building
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    libsasl2-dev \
-    libzstd-dev \
-    cmake \
-    build-essential \
-    clang \
-    libclang-dev \
-    && rm -rf /var/lib/apt/lists/*
+# # Install system dependencies needed for building
+# RUN apt-get update && apt-get install -y \
+#     pkg-config \
+#     libssl-dev \
+#     libsasl2-dev \
+#     libzstd-dev \
+#     cmake \
+#     build-essential \
+#     clang \
+#     libclang-dev \
+#     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /build
+# WORKDIR /build
 
-# Copy workspace and service Cargo files for dependency caching
-COPY Cargo.toml Cargo.lock ./
-COPY event-service/Cargo.toml ./event-service/
-COPY reservation-service/Cargo.toml ./reservation-service/
-COPY ticket-service/Cargo.toml ./ticket-service/
+# # Copy workspace and service Cargo files for dependency caching
+# COPY Cargo.toml Cargo.lock ./
+# COPY event-service/Cargo.toml ./event-service/
+# COPY reservation-service/Cargo.toml ./reservation-service/
+# COPY ticket-service/Cargo.toml ./ticket-service/
 
-# Copy source code
-COPY src/ src/
-COPY event-service/src/ event-service/src/
-COPY reservation-service/src/ reservation-service/src/
-COPY ticket-service/src/ ticket-service/src/
-COPY tests/ tests/
+# # Copy source code
+# COPY src/ src/
+# COPY event-service/src/ event-service/src/
+# COPY reservation-service/src/ reservation-service/src/
+# COPY ticket-service/src/ ticket-service/src/
+# COPY tests/ tests/
 
-# Build all applications in release mode
-RUN cargo build --release --workspace
+# # Build all applications in release mode
+# RUN cargo build --release --workspace
 
 # Runtime stage
 FROM debian:bookworm-slim as runtime
@@ -57,9 +57,9 @@ RUN adduser \
     appuser
 
 # Copy the built binaries
-COPY --from=builder /build/target/release/event-service /usr/local/bin/
-COPY --from=builder /build/target/release/reservation-service /usr/local/bin/
-COPY --from=builder /build/target/release/ticket-service /usr/local/bin/
+COPY target/release/event-service /usr/local/bin/
+COPY target/release/reservation-service /usr/local/bin/
+COPY target/release/ticket-service /usr/local/bin/
 
 # Set ownership and permissions
 RUN chown appuser:appuser /usr/local/bin/event-service /usr/local/bin/reservation-service /usr/local/bin/ticket-service && \

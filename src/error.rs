@@ -40,6 +40,21 @@ pub enum TicketMasterError {
     
     #[error("UTF-8 error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
+    
+    #[error("Not found: {0}")]
+    NotFound(String),
+    
+    #[error("Service unavailable: {0}")]
+    ServiceUnavailable(String),
+    
+    #[error("Timeout: {0}")]
+    Timeout(String),
+    
+    #[error("HTTP client error: {0}")]
+    HttpClient(String),
+    
+    #[error("Remote service error: {0}")]
+    RemoteService(String),
 }
 
 pub type Result<T> = std::result::Result<T, TicketMasterError>;

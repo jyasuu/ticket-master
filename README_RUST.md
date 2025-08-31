@@ -188,8 +188,119 @@ docker compose -f docker-compose.rust.yml up -d
 docker compose -f docker-compose.rust.yml logs event-service-rust -f
 docker compose -f docker-compose.rust.yml logs reservation-service-rust -f
 docker compose -f docker-compose.rust.yml logs ticket-service-rust -f
+
+```
+
+```bash
+# rust
+k6 run scripts/perf/k6/stress-test.js --duration 60s --vus 5
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+WARN[0000] "cli" level configuration overrode scenarios configuration entirely 
+     execution: local
+        script: scripts/perf/k6/stress-test.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 5 max VUs, 1m30s max duration (incl. graceful stop):
+              * default: 5 looping VUs for 1m0s (gracefulStop: 30s)
+
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 67031   1116.883708/s
+    checks_succeeded...: 100.00% 67031 out of 67031
+    checks_failed......: 0.00%   0 out of 67031
+
+    ✓ status is 200
+
+    CUSTOM
+    reservation_completed..........: 33515 558.433523/s
+    reservation_time...............: avg=8.62ms min=1.24ms   med=7.27ms max=77.73ms p(90)=9.39ms p(95)=19.68ms
+
+    HTTP
+    http_req_duration..............: avg=4.31ms min=168.47µs med=2.18ms max=77.24ms p(90)=7.65ms p(95)=8.91ms 
+      { expected_response:true }...: avg=4.31ms min=168.47µs med=2.18ms max=77.24ms p(90)=7.65ms p(95)=8.91ms 
+    http_req_failed................: 0.00% 0 out of 67031
+    http_reqs......................: 67031 1116.883708/s
+
+    EXECUTION
+    iteration_duration.............: avg=8.94ms min=1.44ms   med=7.57ms max=78.4ms  p(90)=9.79ms p(95)=20.12ms
+    iterations.....................: 33515 558.433523/s
+    vus............................: 5     min=5          max=5
+    vus_max........................: 5     min=5          max=5
+
+    NETWORK
+    data_received..................: 21 MB 356 kB/s
+    data_sent......................: 14 MB 238 kB/s
+
+
+
+
+running (1m00.0s), 0/5 VUs, 33515 complete and 0 interrupted iterations
+default ✓ [======================================] 5 VUs  1m0s
 ```
 
 
 
 
+
+```bash
+# java
+k6 run scripts/perf/k6/stress-test.js --duration 60s --vus 5
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+WARN[0000] "cli" level configuration overrode scenarios configuration entirely 
+     execution: local
+        script: scripts/perf/k6/stress-test.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 5 max VUs, 1m30s max duration (incl. graceful stop):
+              * default: 5 looping VUs for 1m0s (gracefulStop: 30s)
+
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 2389    37.254834/s
+    checks_succeeded...: 100.00% 2389 out of 2389
+    checks_failed......: 0.00%   0 out of 2389
+
+    ✓ status is 200
+
+    CUSTOM
+    reservation_completed..........: 1194   18.61962/s
+    reservation_time...............: avg=251.47ms min=39.13ms  med=211.09ms max=6.69s p(90)=380.88ms p(95)=480.47ms
+
+    HTTP
+    http_req_duration..............: avg=127.27ms min=700.17µs med=43.88ms  max=6.09s p(90)=294.12ms p(95)=384.34ms
+      { expected_response:true }...: avg=127.27ms min=700.17µs med=43.88ms  max=6.09s p(90)=294.12ms p(95)=384.34ms
+    http_req_failed................: 0.00%  0 out of 2389
+    http_reqs......................: 2389   37.254834/s
+
+    EXECUTION
+    iteration_duration.............: avg=252.08ms min=39.5ms   med=211.55ms max=6.69s p(90)=381.46ms p(95)=480.85ms
+    iterations.....................: 1194   18.61962/s
+    vus............................: 4      min=0         max=5
+    vus_max........................: 5      min=5         max=5
+
+    NETWORK
+    data_received..................: 676 kB 11 kB/s
+    data_sent......................: 552 kB 8.6 kB/s
+
+
+
+
+running (1m04.1s), 0/5 VUs, 1194 complete and 0 interrupted iterations
+default ✓ [======================================] 5 VUs  1m0s
+```

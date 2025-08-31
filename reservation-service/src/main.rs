@@ -4,8 +4,11 @@ use ticket_master::{Result, ServiceConfig};
 use tracing::{info, error};
 
 mod service;
+mod topology;
+mod enhanced_service;
 
 use service::ReservationService;
+use enhanced_service::EnhancedReservationService;
 
 #[derive(Parser, Debug)]
 #[command(name = "reservation-service")]
@@ -26,6 +29,10 @@ struct Args {
     /// Show help information
     #[arg(short = 'h', long = "help")]
     help: bool,
+
+    /// Enable enhanced mode with Kafka Streams topology (exact Java equivalent)
+    #[arg(long = "enhanced")]
+    enhanced: bool,
 }
 
 #[tokio::main]
@@ -56,13 +63,27 @@ async fn main() -> Result<()> {
         config = ticket_master::merge_stream_properties(config, stream_config_path)?;
     }
 
-    // Create and start the reservation service
-    let service = ReservationService::new(config).await?;
-    
-    info!("Reservation Service started successfully");
-    
-    // Run the service
-    service.run().await?;
+    if args.enhanced {
+        info!("Starting Enhanced Reservation Service with Kafka Streams topology");
+        
+        // Create and start the enhanced reservation service
+        let enhanced_service = EnhancedReservationService::new(config).await?;
+        
+        info!("Enhanced Reservation Service started successfully");
+        
+        // Run the enhanced service
+        enhanced_service.run().await?;
+    } else {
+        info!("Starting Standard Reservation Service");
+        
+        // Create and start the standard reservation service
+        let service = ReservationService::new(config).await?;
+        
+        info!("Standard Reservation Service started successfully");
+        
+        // Run the service
+        service.run().await?;
+    }
 
     Ok(())
 }

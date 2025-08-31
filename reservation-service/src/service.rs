@@ -28,14 +28,16 @@ impl ReservationService {
             Topics::STATE_EVENT_AREA_STATUS,
         ])?;
 
-        // Initialize state stores with RocksDB
+        // Initialize state stores with in-memory stores for now
         let context = ProcessingContext::with_state_dir(config.state_dir.clone());
         
         // Reservation store
-        context.add_rocksdb_store(Stores::RESERVATION.to_string(), "reservations")?;
+        let reservation_store: StateStore<String, Reservation> = StateStore::new();
+        context.add_store(Stores::RESERVATION.to_string(), reservation_store);
         
         // Area status cache
-        context.add_rocksdb_store(Stores::EVENT_AREA_STATUS_CACHE.to_string(), "area-status-cache")?;
+        let area_status_cache: StateStore<String, AreaStatus> = StateStore::new();
+        context.add_store(Stores::EVENT_AREA_STATUS_CACHE.to_string(), area_status_cache);
 
         Ok(Self {
             consumer,
@@ -107,9 +109,14 @@ impl ReservationService {
         
         info!("Creating reservation: {}", reservation_id);
 
+        // Debug: Check if store exists
+        info!("Looking for reservation store: {}", Stores::RESERVATION);
         let reservation_store: StateStore<String, Reservation> = self.context
             .get_store(Stores::RESERVATION)
-            .ok_or_else(|| TicketMasterError::InvalidArgument("Reservation store not found".to_string()))?;
+            .ok_or_else(|| {
+                error!("Available stores: {:?}", self.context.stores.iter().map(|entry| entry.key().clone()).collect::<Vec<_>>());
+                TicketMasterError::InvalidArgument("Reservation store not found".to_string())
+            })?;
 
         // Create new reservation
         let reservation = Reservation::new(create_request);
@@ -200,9 +207,14 @@ impl ReservationService {
         
         let area_status: AreaStatus = message.deserialize_value()?;
         
+        // Debug: Check if store exists
+        info!("Looking for area status cache: {}", Stores::EVENT_AREA_STATUS_CACHE);
         let area_status_cache: StateStore<String, AreaStatus> = self.context
             .get_store(Stores::EVENT_AREA_STATUS_CACHE)
-            .ok_or_else(|| TicketMasterError::InvalidArgument("Area status cache not found".to_string()))?;
+            .ok_or_else(|| {
+                error!("Available stores: {:?}", self.context.stores.iter().map(|entry| entry.key().clone()).collect::<Vec<_>>());
+                TicketMasterError::InvalidArgument("Area status cache not found".to_string())
+            })?;
 
         // Update cache
         area_status_cache.put(event_area_key.clone(), area_status);

@@ -57,6 +57,7 @@ pub enum ReservationErrorCode {
     InvalidArgument,
     SeatNotAvailable,
     InsufficientSeats,
+    Unknown,
 }
 
 impl Reservation {

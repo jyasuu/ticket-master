@@ -7,13 +7,11 @@ services:
     volumes:
       - "./nginx.conf:/etc/nginx/nginx.conf"
     depends_on:
-      - ticket-service-rust-1
-      - ticket-service-rust-2
-      - ticket-service-rust-3
+      - ticket-service
     restart: unless-stopped
 
-  # Scaled Ticket Services (3 instances)
-  ticket-service-rust-1:
+  # Scalable Ticket Service (like Kubernetes replicas)
+  ticket-service:
     build: 
       context: ./
       dockerfile: Dockerfile.rust
@@ -24,10 +22,9 @@ services:
     environment:
       - RUST_LOG=info
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
-      - OTEL_SERVICE_NAME=ticket-service-rust-1
+      - OTEL_SERVICE_NAME=ticket-service-rust
       - OTEL_TRACES_SAMPLER=parentbased_traceidratio
       - OTEL_TRACES_SAMPLER_ARG=0.2
-      - INSTANCE_ID=1
     command: [
       "ticket-service", 
       "--config", "/appConfig/client.docker.properties", 
@@ -38,61 +35,10 @@ services:
         condition: service_completed_successfully
       jaeger:
         condition: service_started
+    # This allows Docker Compose scaling like: docker-compose up --scale ticket-service=3
 
-  ticket-service-rust-2:
-    build: 
-      context: ./
-      dockerfile: Dockerfile.rust
-    expose:
-      - "8080"
-    volumes:
-      - "./appConfig:/appConfig"
-    environment:
-      - RUST_LOG=info
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
-      - OTEL_SERVICE_NAME=ticket-service-rust-2
-      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
-      - OTEL_TRACES_SAMPLER_ARG=0.2
-      - INSTANCE_ID=2
-    command: [
-      "ticket-service", 
-      "--config", "/appConfig/client.docker.properties", 
-      "--port", "8080"
-    ]
-    depends_on:
-      init-kafka:
-        condition: service_completed_successfully
-      jaeger:
-        condition: service_started
-
-  ticket-service-rust-3:
-    build: 
-      context: ./
-      dockerfile: Dockerfile.rust
-    expose:
-      - "8080"
-    volumes:
-      - "./appConfig:/appConfig"
-    environment:
-      - RUST_LOG=info
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
-      - OTEL_SERVICE_NAME=ticket-service-rust-3
-      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
-      - OTEL_TRACES_SAMPLER_ARG=0.2
-      - INSTANCE_ID=3
-    command: [
-      "ticket-service", 
-      "--config", "/appConfig/client.docker.properties", 
-      "--port", "8080"
-    ]
-    depends_on:
-      init-kafka:
-        condition: service_completed_successfully
-      jaeger:
-        condition: service_started
-
-  # Scaled Reservation Services (3 instances)
-  reservation-service-rust-1:
+  # Scalable Reservation Service
+  reservation-service:
     build: 
       context: ./
       dockerfile: Dockerfile.rust
@@ -101,10 +47,9 @@ services:
     environment:
       - RUST_LOG=info
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
-      - OTEL_SERVICE_NAME=reservation-service-rust-1
+      - OTEL_SERVICE_NAME=reservation-service-rust
       - OTEL_TRACES_SAMPLER=parentbased_traceidratio
       - OTEL_TRACES_SAMPLER_ARG=0.2
-      - INSTANCE_ID=1
     command: [
       "reservation-service",
       "--config", "/appConfig/client.docker.properties"
@@ -115,7 +60,8 @@ services:
       jaeger:
         condition: service_started
 
-  reservation-service-rust-2:
+  # Scalable Event Service
+  event-service:
     build: 
       context: ./
       dockerfile: Dockerfile.rust
@@ -124,57 +70,9 @@ services:
     environment:
       - RUST_LOG=info
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
-      - OTEL_SERVICE_NAME=reservation-service-rust-2
+      - OTEL_SERVICE_NAME=event-service-rust
       - OTEL_TRACES_SAMPLER=parentbased_traceidratio
       - OTEL_TRACES_SAMPLER_ARG=0.2
-      - INSTANCE_ID=2
-    command: [
-      "reservation-service",
-      "--config", "/appConfig/client.docker.properties"
-    ]
-    depends_on:
-      init-kafka:
-        condition: service_completed_successfully
-      jaeger:
-        condition: service_started
-
-  reservation-service-rust-3:
-    build: 
-      context: ./
-      dockerfile: Dockerfile.rust
-    volumes:
-      - "./appConfig:/appConfig"
-    environment:
-      - RUST_LOG=info
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
-      - OTEL_SERVICE_NAME=reservation-service-rust-3
-      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
-      - OTEL_TRACES_SAMPLER_ARG=0.2
-      - INSTANCE_ID=3
-    command: [
-      "reservation-service",
-      "--config", "/appConfig/client.docker.properties"
-    ]
-    depends_on:
-      init-kafka:
-        condition: service_completed_successfully
-      jaeger:
-        condition: service_started
-
-  # Scaled Event Services (3 instances)
-  event-service-rust-1:
-    build: 
-      context: ./
-      dockerfile: Dockerfile.rust
-    volumes:
-      - "./appConfig:/appConfig"
-    environment:
-      - RUST_LOG=info
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
-      - OTEL_SERVICE_NAME=event-service-rust-1
-      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
-      - OTEL_TRACES_SAMPLER_ARG=0.2
-      - INSTANCE_ID=1
     command: [
       "event-service",
       "--config", "/appConfig/client.docker.properties"
@@ -185,53 +83,7 @@ services:
       jaeger:
         condition: service_started
 
-  event-service-rust-2:
-    build: 
-      context: ./
-      dockerfile: Dockerfile.rust
-    volumes:
-      - "./appConfig:/appConfig"
-    environment:
-      - RUST_LOG=info
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
-      - OTEL_SERVICE_NAME=event-service-rust-2
-      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
-      - OTEL_TRACES_SAMPLER_ARG=0.2
-      - INSTANCE_ID=2
-    command: [
-      "event-service",
-      "--config", "/appConfig/client.docker.properties"
-    ]
-    depends_on:
-      init-kafka:
-        condition: service_completed_successfully
-      jaeger:
-        condition: service_started
-
-  event-service-rust-3:
-    build: 
-      context: ./
-      dockerfile: Dockerfile.rust
-    volumes:
-      - "./appConfig:/appConfig"
-    environment:
-      - RUST_LOG=info
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
-      - OTEL_SERVICE_NAME=event-service-rust-3
-      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
-      - OTEL_TRACES_SAMPLER_ARG=0.2
-      - INSTANCE_ID=3
-    command: [
-      "event-service",
-      "--config", "/appConfig/client.docker.properties"
-    ]
-    depends_on:
-      init-kafka:
-        condition: service_completed_successfully
-      jaeger:
-        condition: service_started
-
-  # Kafka infrastructure (reused from original)
+  # Kafka infrastructure (same as before)
   kafka-1:
     image: apache/kafka:3.9.0
     hostname: kafka-1
@@ -376,4 +228,4 @@ services:
     ports:
       - "9090:9090"
     links: 
-      - "jaeger:spm_metrics_source" # This is the host name used in Prometheus scrape configuration.
+      - "jaeger:spm_metrics_source"

@@ -1,0 +1,124 @@
+services:
+  # Traefik Load Balancer (Alternative to Nginx)
+  traefik:
+    image: traefik:v3.0
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--metrics.prometheus=true"
+      - "--metrics.prometheus.addEntryPointsLabels=true"
+      - "--metrics.prometheus.addServicesLabels=true"
+      - "--accesslog=true"
+      - "--log.level=INFO"
+    ports:
+      - "8080:80"
+      - "8443:443"
+      - "8081:8080"  # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.localhost`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+
+  # Scaled Ticket Services with Traefik labels
+  ticket-service-rust-1:
+    build: 
+      context: ./
+      dockerfile: Dockerfile.rust
+    expose:
+      - "8080"
+    volumes:
+      - "./appConfig:/appConfig"
+    environment:
+      - RUST_LOG=info
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=ticket-service-rust-1
+      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
+      - OTEL_TRACES_SAMPLER_ARG=0.2
+      - INSTANCE_ID=1
+    command: [
+      "ticket-service", 
+      "--config", "/appConfig/client.docker.properties", 
+      "--port", "8080"
+    ]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ticket-service.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.ticket-service.service=ticket-service"
+      - "traefik.http.services.ticket-service.loadbalancer.server.port=8080"
+      - "traefik.http.services.ticket-service.loadbalancer.healthcheck.path=/health"
+      - "traefik.http.services.ticket-service.loadbalancer.healthcheck.interval=30s"
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+
+  ticket-service-rust-2:
+    build: 
+      context: ./
+      dockerfile: Dockerfile.rust
+    expose:
+      - "8080"
+    volumes:
+      - "./appConfig:/appConfig"
+    environment:
+      - RUST_LOG=info
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=ticket-service-rust-2
+      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
+      - OTEL_TRACES_SAMPLER_ARG=0.2
+      - INSTANCE_ID=2
+    command: [
+      "ticket-service", 
+      "--config", "/appConfig/client.docker.properties", 
+      "--port", "8080"
+    ]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ticket-service.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.ticket-service.service=ticket-service"
+      - "traefik.http.services.ticket-service.loadbalancer.server.port=8080"
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+
+  ticket-service-rust-3:
+    build: 
+      context: ./
+      dockerfile: Dockerfile.rust
+    expose:
+      - "8080"
+    volumes:
+      - "./appConfig:/appConfig"
+    environment:
+      - RUST_LOG=info
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=ticket-service-rust-3
+      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
+      - OTEL_TRACES_SAMPLER_ARG=0.2
+      - INSTANCE_ID=3
+    command: [
+      "ticket-service", 
+      "--config", "/appConfig/client.docker.properties", 
+      "--port", "8080"
+    ]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ticket-service.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.ticket-service.service=ticket-service"
+      - "traefik.http.services.ticket-service.loadbalancer.server.port=8080"
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+
+  # Include other services from the main compose file...
+  # (kafka, schema-registry, etc. - same as in docker-compose.rust.yml)

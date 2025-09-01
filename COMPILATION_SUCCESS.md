@@ -75,3 +75,7 @@ cargo build --release  # ✅ Builds successfully
 
 **🎯 ACHIEVEMENT**: Config parser fixed, compilation successful, ready for Docker testing!
 **NEXT ACTION**: Test the Docker build process we created earlier.
+
+
+
+read chat.txt first. help me check service scalibility. and scale out services with -1 , -2 , -3 in docker-compose.rust.yml . and use nginx or traefik for load balance ticket service█

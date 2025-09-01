@@ -34,6 +34,9 @@ sequenceDiagram
     EventService->>EventService: Process CreateEvent<br/>- Convert areas to AreaStatus<br/>- Initialize seat availability
     EventService->>AreaStatusTopic: Publish AreaStatus for each area
     EventService->>EventService: Store AreaStatus in local state store
+    
+    AreaStatusTopic->>ReservationService: GlobalTable consumption<br/>Build eventAreaStatusCache (LRU)
+    ReservationService->>ReservationService: Maintain local AreaStatus cache<br/>for reservation filtering
 
     Note over Client, UserReservationTopic: Reservation Flow
     
@@ -42,7 +45,7 @@ sequenceDiagram
     TicketService-->>Client: Return reservationId (async)
     
     ReservationTopic->>ReservationService: Consume CreateReservation
-    ReservationService->>ReservationService: ReservationValueProcessor<br/>- Create Reservation object<br/>- Check area status cache<br/>- Apply filter strategy
+    ReservationService->>ReservationService: ReservationValueProcessor<br/>- Create Reservation object<br/>- Check eventAreaStatusCache (GlobalTable)<br/>- Apply filter strategy (SelfPick/Random)
     
     alt Area status available in cache and passes filter
         ReservationService->>ReservationService: Set state to PROCESSING
@@ -118,7 +121,7 @@ sequenceDiagram
 |-------|---------|---------|-----|-------|
 | `AreaStatus` | Event Service | Track seat availability | eventId#areaId | AreaStatus |
 | `Reservation` | Reservation Service | Track reservation state | Reservation ID | Reservation |
-| `eventAreaStatusCache` | Reservation Service | Cache area status for filtering | eventId#areaId | AreaStatus |
+| `eventAreaStatusCache` | Reservation Service | **GlobalTable** LRU cache (1000 entries) for filtering | eventId#areaId | AreaStatus |
 
 ## Architecture Highlights
 

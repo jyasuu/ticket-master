@@ -1,0 +1,429 @@
+# Scalable Docker Compose for Rust Ticket Master Services
+# Enhanced with distributed features and proper load balancing
+version: '3.8'
+
+services:
+  # Load Balancer for Rust Ticket Service
+  nginx-lb-rust:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.rust.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - ticket-service-rust-1
+      - ticket-service-rust-2
+      - ticket-service-rust-3
+    restart: unless-stopped
+
+  # Rust Ticket Service Replicas (3 instances with distributed features)
+  ticket-service-rust-1:
+    build:
+      context: ./
+      dockerfile: Dockerfile.rust
+    hostname: ticket-service-rust-1
+    expose:
+      - "8080"
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/rust/ticket-service-1:/tmp/kafka-streams"
+    environment:
+      - RUST_LOG=info,ticket_master=debug
+      - OTEL_SERVICE_NAME=ticket-service-rust-1
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - INSTANCE_ID=1
+      - HOSTNAME=ticket-service-rust-1
+    command: [
+      "ticket-service",
+      "--config", "/appConfig/client.docker.properties",
+      "--stream-config", "/appConfig/ticket-service/stream.properties", 
+      "--port", "8080",
+      "--hostname", "ticket-service-rust-1",
+      "--distributed",
+      "--state-dir", "/tmp/kafka-streams"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  ticket-service-rust-2:
+    build:
+      context: ./
+      dockerfile: Dockerfile.rust
+    hostname: ticket-service-rust-2
+    expose:
+      - "8080"
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/rust/ticket-service-2:/tmp/kafka-streams"
+    environment:
+      - RUST_LOG=info,ticket_master=debug
+      - OTEL_SERVICE_NAME=ticket-service-rust-2
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - INSTANCE_ID=2
+      - HOSTNAME=ticket-service-rust-2
+    command: [
+      "ticket-service",
+      "--config", "/appConfig/client.docker.properties",
+      "--stream-config", "/appConfig/ticket-service/stream.properties",
+      "--port", "8080", 
+      "--hostname", "ticket-service-rust-2",
+      "--distributed",
+      "--state-dir", "/tmp/kafka-streams"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  ticket-service-rust-3:
+    build:
+      context: ./
+      dockerfile: Dockerfile.rust
+    hostname: ticket-service-rust-3
+    expose:
+      - "8080"
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/rust/ticket-service-3:/tmp/kafka-streams"
+    environment:
+      - RUST_LOG=info,ticket_master=debug
+      - OTEL_SERVICE_NAME=ticket-service-rust-3
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - INSTANCE_ID=3
+      - HOSTNAME=ticket-service-rust-3
+    command: [
+      "ticket-service",
+      "--config", "/appConfig/client.docker.properties",
+      "--stream-config", "/appConfig/ticket-service/stream.properties",
+      "--port", "8080",
+      "--hostname", "ticket-service-rust-3", 
+      "--distributed",
+      "--state-dir", "/tmp/kafka-streams"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Rust Event Service Replicas (2 instances with enhanced mode)
+  event-service-rust-1:
+    build:
+      context: ./
+      dockerfile: Dockerfile.rust
+    hostname: event-service-rust-1
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/rust/event-service-1:/tmp/kafka-streams"
+    environment:
+      - RUST_LOG=info,ticket_master=debug
+      - OTEL_SERVICE_NAME=event-service-rust-1
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - INSTANCE_ID=1
+    command: [
+      "event-service",
+      "--config", "/appConfig/client.docker.properties",
+      "--stream-config", "/appConfig/event-service/stream.properties",
+      "--state-dir", "/tmp/kafka-streams",
+      "--enhanced"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  event-service-rust-2:
+    build:
+      context: ./
+      dockerfile: Dockerfile.rust
+    hostname: event-service-rust-2
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/rust/event-service-2:/tmp/kafka-streams"
+    environment:
+      - RUST_LOG=info,ticket_master=debug
+      - OTEL_SERVICE_NAME=event-service-rust-2
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - INSTANCE_ID=2
+    command: [
+      "event-service",
+      "--config", "/appConfig/client.docker.properties",
+      "--stream-config", "/appConfig/event-service/stream.properties",
+      "--state-dir", "/tmp/kafka-streams",
+      "--enhanced"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  # Rust Reservation Service Replicas (2 instances with enhanced mode)
+  reservation-service-rust-1:
+    build:
+      context: ./
+      dockerfile: Dockerfile.rust
+    hostname: reservation-service-rust-1
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/rust/reservation-service-1:/tmp/kafka-streams"
+    environment:
+      - RUST_LOG=info,ticket_master=debug
+      - OTEL_SERVICE_NAME=reservation-service-rust-1
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - INSTANCE_ID=1
+    command: [
+      "reservation-service",
+      "--config", "/appConfig/client.docker.properties",
+      "--stream-config", "/appConfig/reservation-service/stream.properties",
+      "--state-dir", "/tmp/kafka-streams",
+      "--enhanced"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  reservation-service-rust-2:
+    build:
+      context: ./
+      dockerfile: Dockerfile.rust
+    hostname: reservation-service-rust-2
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/rust/reservation-service-2:/tmp/kafka-streams"
+    environment:
+      - RUST_LOG=info,ticket_master=debug
+      - OTEL_SERVICE_NAME=reservation-service-rust-2
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - INSTANCE_ID=2
+    command: [
+      "reservation-service",
+      "--config", "/appConfig/client.docker.properties",
+      "--stream-config", "/appConfig/reservation-service/stream.properties",
+      "--state-dir", "/tmp/kafka-streams",
+      "--enhanced"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  # Kafka Cluster (optimized for scalability)
+  kafka-1:
+    image: confluentinc/cp-kafka:7.7.1
+    hostname: kafka-1
+    container_name: kafka-1
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:19092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_NUM_PARTITIONS: 9  # 3x replicas for better distribution
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_COMPRESSION_TYPE: 'snappy'
+      # Performance optimizations
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_REQUEST_MAX_BYTES: 104857600
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.7.1
+    hostname: kafka-2
+    container_name: kafka-2
+    ports:
+      - "39092:39092"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:19092,PLAINTEXT_HOST://localhost:39092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_NUM_PARTITIONS: 9
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_COMPRESSION_TYPE: 'snappy'
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_REQUEST_MAX_BYTES: 104857600
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  kafka-3:
+    image: confluentinc/cp-kafka:7.7.1
+    hostname: kafka-3
+    container_name: kafka-3
+    ports:
+      - "49092:49092"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:19092,PLAINTEXT_HOST://localhost:49092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_NUM_PARTITIONS: 9
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_COMPRESSION_TYPE: 'snappy'
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_REQUEST_MAX_BYTES: 104857600
+    volumes:
+      - kafka-3-data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  # Initialize Kafka topics optimized for Rust services
+  init-kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    entrypoint: [ '/bin/sh', '-c' ]
+    command: |
+      "
+      echo 'Waiting for Kafka to be ready...'
+      cub kafka-ready -b kafka-1:19092,kafka-2:19092,kafka-3:19092 3 120
+
+      echo 'Creating topics optimized for Rust distributed services...'
+      
+      # Create topics with 9 partitions for optimal distribution across 3 ticket-service replicas
+      kafka-topics --create --if-not-exists --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 --partitions 9 --replication-factor 3 --topic command-event-create-event --config cleanup.policy=delete --config retention.ms=604800000
+      kafka-topics --create --if-not-exists --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 --partitions 9 --replication-factor 3 --topic command-event-reserve-seat --config cleanup.policy=delete --config retention.ms=604800000
+      kafka-topics --create --if-not-exists --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 --partitions 9 --replication-factor 3 --topic command-reservation-create-reservation --config cleanup.policy=delete --config retention.ms=604800000
+      kafka-topics --create --if-not-exists --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 --partitions 9 --replication-factor 3 --topic response-reservation-result --config cleanup.policy=delete --config retention.ms=604800000
+      kafka-topics --create --if-not-exists --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 --partitions 9 --replication-factor 3 --topic state-event-area-status --config cleanup.policy=compact --config min.cleanable.dirty.ratio=0.1
+      kafka-topics --create --if-not-exists --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 --partitions 9 --replication-factor 3 --topic state-user-reservation --config cleanup.policy=compact --config min.cleanable.dirty.ratio=0.1
+
+      echo 'Topics created successfully for Rust distributed services!'
+      kafka-topics --list --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092
+      
+      echo 'Topic details:'
+      kafka-topics --describe --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092
+      "
+
+  # Schema Registry
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.7.1
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka-1:19092,kafka-2:19092,kafka-3:19092'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: 3
+    restart: unless-stopped
+
+  # Kafka UI for monitoring
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: "kafka-1:19092,kafka-2:19092,kafka-3:19092"
+      SCHEMAREGISTRY_CONNECT: "http://schema-registry:8081"
+      JVM_OPTS: "-Xms16M -Xmx48M -Xss180K -XX:-TieredCompilation -XX:+UseStringDeduplication -noverify"
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+      - schema-registry
+
+  # Observability Stack
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./otel/prometheus/config.yml:/etc/prometheus/prometheus.yml
+    restart: unless-stopped
+
+volumes:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:
+
+networks:
+  default:
+    driver: bridge

@@ -1,0 +1,408 @@
+# Scalable Docker Compose for Ticket Master Services
+# Supports multiple replicas with proper load balancing and service discovery
+version: '3.8'
+
+services:
+  # Load Balancer for Ticket Service
+  nginx-lb:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - ticket-service-1
+      - ticket-service-2
+      - ticket-service-3
+    restart: unless-stopped
+
+  # Ticket Service Replicas (3 instances)
+  ticket-service-1:
+    build: ./
+    hostname: ticket-service-1
+    expose:
+      - "8080"
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/ticket-service-1:/tmp/kafka-streams"
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=ticket-service-1
+      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
+      - OTEL_TRACES_SAMPLER_ARG=0.1
+      - JAVA_TOOL_OPTIONS=-Xmx3G -Xms3G -XX:+AlwaysPreTouch -XX:+UseZGC -XX:+ZGenerational
+      - INSTANCE_ID=1
+      - POD_IP=ticket-service-1
+    command: ["lab.tall15421542.app.ticket.Service", 
+      "-c", "appConfig/client.docker.properties", 
+      "-p", "8080", 
+      "-n", "0",
+      "-h", "ticket-service-1",
+      "-pc", "appConfig/ticket-service/producer.properties",
+      "-sc", "appConfig/ticket-service/stream.properties",
+      "-r"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health_check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  ticket-service-2:
+    build: ./
+    hostname: ticket-service-2
+    expose:
+      - "8080"
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/ticket-service-2:/tmp/kafka-streams"
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=ticket-service-2
+      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
+      - OTEL_TRACES_SAMPLER_ARG=0.1
+      - JAVA_TOOL_OPTIONS=-Xmx3G -Xms3G -XX:+AlwaysPreTouch -XX:+UseZGC -XX:+ZGenerational
+      - INSTANCE_ID=2
+      - POD_IP=ticket-service-2
+    command: ["lab.tall15421542.app.ticket.Service", 
+      "-c", "appConfig/client.docker.properties", 
+      "-p", "8080", 
+      "-n", "0",
+      "-h", "ticket-service-2",
+      "-pc", "appConfig/ticket-service/producer.properties",
+      "-sc", "appConfig/ticket-service/stream.properties",
+      "-r"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health_check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  ticket-service-3:
+    build: ./
+    hostname: ticket-service-3
+    expose:
+      - "8080"
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/ticket-service-3:/tmp/kafka-streams"
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=ticket-service-3
+      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
+      - OTEL_TRACES_SAMPLER_ARG=0.1
+      - JAVA_TOOL_OPTIONS=-Xmx3G -Xms3G -XX:+AlwaysPreTouch -XX:+UseZGC -XX:+ZGenerational
+      - INSTANCE_ID=3
+      - POD_IP=ticket-service-3
+    command: ["lab.tall15421542.app.ticket.Service", 
+      "-c", "appConfig/client.docker.properties", 
+      "-p", "8080", 
+      "-n", "0",
+      "-h", "ticket-service-3",
+      "-pc", "appConfig/ticket-service/producer.properties",
+      "-sc", "appConfig/ticket-service/stream.properties",
+      "-r"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health_check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Event Service Replicas (2 instances)
+  event-service-1:
+    build: ./
+    hostname: event-service-1
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/event-service-1:/tmp/kafka-streams"
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=event-service-1
+      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
+      - OTEL_TRACES_SAMPLER_ARG=0.1
+      - JAVA_TOOL_OPTIONS=-Xmx2G -Xms2G -XX:+AlwaysPreTouch -XX:+UseZGC -XX:+ZGenerational
+      - INSTANCE_ID=1
+    command: ["lab.tall15421542.app.event.Service",
+      "-c", "appConfig/client.docker.properties",
+      "-sc", "appConfig/event-service/stream.properties",
+      "-d", "/tmp/kafka-streams"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  event-service-2:
+    build: ./
+    hostname: event-service-2
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/event-service-2:/tmp/kafka-streams"
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=event-service-2
+      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
+      - OTEL_TRACES_SAMPLER_ARG=0.1
+      - JAVA_TOOL_OPTIONS=-Xmx2G -Xms2G -XX:+AlwaysPreTouch -XX:+UseZGC -XX:+ZGenerational
+      - INSTANCE_ID=2
+    command: ["lab.tall15421542.app.event.Service",
+      "-c", "appConfig/client.docker.properties",
+      "-sc", "appConfig/event-service/stream.properties",
+      "-d", "/tmp/kafka-streams"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  # Reservation Service Replicas (2 instances)
+  reservation-service-1:
+    build: ./
+    hostname: reservation-service-1
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/reservation-service-1:/tmp/kafka-streams"
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=reservation-service-1
+      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
+      - OTEL_TRACES_SAMPLER_ARG=0.1
+      - JAVA_TOOL_OPTIONS=-Xmx2G -Xms2G -XX:+AlwaysPreTouch -XX:+UseZGC -XX:+ZGenerational
+      - INSTANCE_ID=1
+    command: ["lab.tall15421542.app.reservation.Service",
+      "-c", "appConfig/client.docker.properties",
+      "-sc", "appConfig/reservation-service/stream.properties",
+      "-d", "/tmp/kafka-streams"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  reservation-service-2:
+    build: ./
+    hostname: reservation-service-2
+    volumes:
+      - "./appConfig:/appConfig"
+      - "./state/reservation-service-2:/tmp/kafka-streams"
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=reservation-service-2
+      - OTEL_TRACES_SAMPLER=parentbased_traceidratio
+      - OTEL_TRACES_SAMPLER_ARG=0.1
+      - JAVA_TOOL_OPTIONS=-Xmx2G -Xms2G -XX:+AlwaysPreTouch -XX:+UseZGC -XX:+ZGenerational
+      - INSTANCE_ID=2
+    command: ["lab.tall15421542.app.reservation.Service",
+      "-c", "appConfig/client.docker.properties",
+      "-sc", "appConfig/reservation-service/stream.properties",
+      "-d", "/tmp/kafka-streams"
+    ]
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  # Kafka Cluster (3 brokers for high availability)
+  kafka-1:
+    image: confluentinc/cp-kafka:7.7.1
+    hostname: kafka-1
+    container_name: kafka-1
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:19092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_NUM_PARTITIONS: 6
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_COMPRESSION_TYPE: 'snappy'
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.7.1
+    hostname: kafka-2
+    container_name: kafka-2
+    ports:
+      - "39092:39092"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:19092,PLAINTEXT_HOST://localhost:39092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_NUM_PARTITIONS: 6
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_COMPRESSION_TYPE: 'snappy'
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  kafka-3:
+    image: confluentinc/cp-kafka:7.7.1
+    hostname: kafka-3
+    container_name: kafka-3
+    ports:
+      - "49092:49092"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:19092,PLAINTEXT_HOST://localhost:49092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_NUM_PARTITIONS: 6
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_COMPRESSION_TYPE: 'snappy'
+    volumes:
+      - kafka-3-data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  # Initialize Kafka topics with proper partitioning for scalability
+  init-kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    entrypoint: [ '/bin/sh', '-c' ]
+    command: |
+      "
+      # Wait for Kafka to be ready
+      echo 'Waiting for Kafka to be ready...'
+      cub kafka-ready -b kafka-1:19092,kafka-2:19092,kafka-3:19092 3 120
+
+      echo 'Creating topics with proper partitioning for scalability...'
+      
+      # Create topics with 6 partitions for better distribution across 3 ticket-service replicas
+      kafka-topics --create --if-not-exists --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 --partitions 6 --replication-factor 3 --topic command-event-create-event
+      kafka-topics --create --if-not-exists --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 --partitions 6 --replication-factor 3 --topic command-event-reserve-seat
+      kafka-topics --create --if-not-exists --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 --partitions 6 --replication-factor 3 --topic command-reservation-create-reservation
+      kafka-topics --create --if-not-exists --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 --partitions 6 --replication-factor 3 --topic response-reservation-result
+      kafka-topics --create --if-not-exists --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 --partitions 6 --replication-factor 3 --topic state-event-area-status
+      kafka-topics --create --if-not-exists --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092 --partitions 6 --replication-factor 3 --topic state-user-reservation
+
+      echo 'Topics created successfully!'
+      kafka-topics --list --bootstrap-server kafka-1:19092,kafka-2:19092,kafka-3:19092
+      "
+
+  # Schema Registry
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.7.1
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka-1:19092,kafka-2:19092,kafka-3:19092'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    restart: unless-stopped
+
+  # Kafka UI for monitoring
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: "kafka-1:19092,kafka-2:19092,kafka-3:19092"
+      SCHEMAREGISTRY_CONNECT: "http://schema-registry:8081"
+      JVM_OPTS: "-Xms16M -Xmx48M -Xss180K -XX:-TieredCompilation -XX:+UseStringDeduplication -noverify"
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+      - schema-registry
+
+  # Observability Stack
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./otel/prometheus/config.yml:/etc/prometheus/prometheus.yml
+    restart: unless-stopped
+
+volumes:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:
+
+networks:
+  default:
+    driver: bridge

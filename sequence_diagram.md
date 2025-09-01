@@ -62,8 +62,9 @@ sequenceDiagram
         EventService->>EventService: ReserveSeatTransformer<br/>- Get AreaStatus from store<br/>- Apply reservation strategy<br/>- Update seat availability
         
         alt Reservation successful
-            EventService->>EventService: Mark seats as unavailable<br/>Update AreaStatus
+            EventService->>EventService: Mark seats as unavailable<br/>Update AreaStatus in local store
             EventService->>AreaStatusTopic: Publish updated AreaStatus
+            AreaStatusTopic->>ReservationService: GlobalTable auto-update<br/>Refresh eventAreaStatusCache
             EventService->>ReservationResultTopic: Publish SUCCESS result
         else Reservation failed
             EventService->>ReservationResultTopic: Publish FAILED result
